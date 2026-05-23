@@ -1,0 +1,1116 @@
+import { useState, useEffect, useCallback } from "react"
+import { 
+  Feather, 
+  Brain, 
+  BookOpen, 
+  Key, 
+  ChevronLeft, 
+  ChevronRight, 
+  Moon, 
+  Sun, 
+  Activity,
+  Plus,
+  Search,
+  Trash2,
+  Sparkles,
+  X,
+  Database,
+  Download,
+  Upload,
+  Settings,
+  ChevronDown,
+  Briefcase,
+  Rocket,
+  User,
+  Edit3,
+  ListTodo,
+  Calendar
+} from "lucide-react"
+
+// Import Components
+import DocumentEditor from "./components/DocumentEditor"
+import KanbanBoard from "./components/KanbanBoard"
+import JournalLogger from "./components/JournalLogger"
+import DatabaseTable from "./components/DatabaseTable"
+import WorkspaceCopilot from "./components/WorkspaceCopilot"
+import RewriteRoom from "./components/RewriteRoom"
+import ConceptLadder from "./components/ConceptLadder"
+import DecisionUnpacker from "./components/DecisionUnpacker"
+import ReadingCompanion from "./components/ReadingCompanion"
+import OllamaManager from "./components/OllamaManager"
+
+// Page interfaces
+export interface KanbanTask {
+  id: string
+  title: string
+  status: "todo" | "progress" | "done"
+  priority: "low" | "medium" | "high"
+  createdAt: number
+}
+
+export interface SpreadsheetRow {
+  id: string
+  title: string
+  status: string
+  assignee: string
+  priority: string
+  date: string
+}
+
+export interface Page {
+  id: string
+  title: string
+  content: string
+  type: "note" | "journal" | "planner" | "document" | "table"
+  createdAt: number
+  updatedAt: number
+  tags?: string[]
+  metrics?: { energy: number; focus: number; mood: number }
+  tasks?: KanbanTask[]
+  rows?: SpreadsheetRow[]
+}
+
+export interface SystemLog {
+  time: string
+  tag: "SYSTEM" | "DATABASE" | "OLLAMA" | "ERROR"
+  message: string
+}
+
+type WorkspaceContext = "enterprise" | "startup" | "personal"
+type ThemeOption = "default" | "vercel" | "emerald" | "sunset" | "light"
+
+export default function App() {
+  const [workspace, setWorkspace] = useState<WorkspaceContext>(
+    (localStorage.getItem("distill_active_workspace") as WorkspaceContext) || "enterprise"
+  )
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState<boolean>(false)
+  const [pages, setPages] = useState<Page[]>([])
+  const [activePageId, setActivePageId] = useState<string>("")
+  const [searchTerm, setSearchTerm] = useState<string>("")
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false)
+  const [theme, setTheme] = useState<ThemeOption>((localStorage.getItem("distill_theme") as ThemeOption) || "default")
+  
+  // Real-time System Console Audit logs
+  const [systemLogs, setSystemLogs] = useState<SystemLog[]>([])
+
+  // Local Ollama server connection monitoring
+  const [ollamaLatency, setOllamaLatency] = useState<number | null>(null)
+  const [isOllamaOnline, setIsOllamaOnline] = useState<boolean>(false)
+
+  // AI Sidecar States
+  const [isSidecarOpen, setIsSidecarOpen] = useState<boolean>(false)
+  const [activeSidecarTool, setActiveSidecarTool] = useState<"rewrite" | "ladder" | "decision" | "reading">("rewrite")
+
+  // Provider and Model selection
+  const [provider, setProvider] = useState<string>("ollama")
+  const [model, setModel] = useState<string>("")
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+
+  // Active models list based on provider
+  const getActiveModels = useCallback((): string[] => {
+    if (provider === "ollama") return ollamaModels
+    if (provider === "openai") return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
+    if (provider === "gemini") return ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
+    if (provider === "anthropic") return ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
+    return []
+  }, [provider, ollamaModels])
+
+  const activeModels: string[] = getActiveModels()
+
+  const handleProviderChange = (newProvider: string) => {
+    setProvider(newProvider)
+    let defaultModel = ""
+    if (newProvider === "ollama") {
+      defaultModel = ollamaModels[0] || ""
+    } else if (newProvider === "openai") {
+      defaultModel = "gpt-4o"
+    } else if (newProvider === "gemini") {
+      defaultModel = "gemini-1.5-pro"
+    } else if (newProvider === "anthropic") {
+      defaultModel = "claude-3-5-sonnet"
+    }
+    setModel(defaultModel)
+    logSystemMessage("SYSTEM", `Switched AI provider to ${newProvider.toUpperCase()} (Default Model: ${defaultModel})`)
+  }
+  
+  // API Keys stored in localStorage
+  const [apiKeys, setApiKeys] = useState({
+    openai: localStorage.getItem("distill_api_key_openai") || "",
+    anthropic: localStorage.getItem("distill_api_key_anthropic") || "",
+    gemini: localStorage.getItem("distill_api_key_gemini") || "",
+  })
+
+  // System audit logger
+  const logSystemMessage = useCallback((tag: "SYSTEM" | "DATABASE" | "OLLAMA" | "ERROR", message: string) => {
+    const time = new Date().toLocaleTimeString()
+    setSystemLogs(prev => [{ time, tag, message }, ...prev].slice(0, 100))
+  }, [])
+
+  // Seeding Page Tree Database
+  const seedPages = useCallback((context: WorkspaceContext): Page[] => {
+    logSystemMessage("DATABASE", `Seeding default Notion-style templates for context "${context.toUpperCase()}"`)
+    
+    if (context === "enterprise") {
+      return [
+        {
+          id: "e1",
+          title: "🚀 Enterprise System Specifications",
+          content: `# Product Technical Specifications\n\nWelcome to your enterprise workspace note deck.\n\n### Slash block menu\nType \`/\` to summon the Notion block dropdown.\n\n### Ask AI dialogue sidecar\nSlide the sidecar open from the top-right to process this text in Rewrite Room, Concept Ladder, or Decision matrices instantly.`,
+          type: "document",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          tags: ["Specs", "Infrastructure"]
+        },
+        {
+          id: "e2",
+          title: "📊 Core Enterprise Projects Database",
+          content: "Spreadsheet database grid for major project tracking and assignments.",
+          type: "table",
+          createdAt: Date.now() - 50000,
+          updatedAt: Date.now() - 50000,
+          tags: ["Database", "Enterprise"],
+          rows: [
+            { id: "r1", title: "Refactor global CSS HSL variables", status: "Done", assignee: "AI Developer", priority: "High", date: "2026-05-24" },
+            { id: "r2", title: "Audit local Ollama stream latencies", status: "In Progress", assignee: "Me", priority: "Medium", date: "2026-05-28" },
+            { id: "r3", title: "Compose static Netlify deployment workflows", status: "To-Do", assignee: "Team Partner", priority: "Low", date: "2026-06-02" }
+          ]
+        }
+      ]
+    } else if (context === "startup") {
+      return [
+        {
+          id: "s1",
+          title: "📋 Product Sprint Kanban Planner",
+          content: "Weekly task prioritizations, switch column lanes with click handles.",
+          type: "planner",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          tags: ["Productivity", "Sprint"],
+          tasks: [
+            { id: "t1", title: "Deploy static static bundle to Netlify edge", status: "done", priority: "high", createdAt: Date.now() },
+            { id: "t2", title: "Complete visual redesign of Distill", status: "progress", priority: "high", createdAt: Date.now() },
+            { id: "t3", title: "Connect Ollama local inference streams", status: "todo", priority: "medium", createdAt: Date.now() }
+          ]
+        }
+      ]
+    } else {
+      // Personal
+      return [
+        {
+          id: "p1",
+          title: "🧠 Focus Daily Log Journal",
+          content: "Tweak focus, mood, and energy bars directly inside this note card.",
+          type: "journal",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          tags: ["Reflection", "Focus"],
+          metrics: { energy: 8, focus: 9, mood: 7 }
+        }
+      ]
+    }
+  }, [logSystemMessage])
+
+  // Sync active pages with workspace key
+  useEffect(() => {
+    localStorage.setItem("distill_active_workspace", workspace)
+    const storageKey = `distill_pages_${workspace}`
+    const saved = localStorage.getItem(storageKey)
+    
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Page[]
+        setPages(parsed)
+        if (parsed.length > 0) {
+          setActivePageId(parsed[0].id)
+        } else {
+          setActivePageId("")
+        }
+        logSystemMessage("DATABASE", `Loaded workspace context "${workspace.toUpperCase()}" with ${parsed.length} pages`)
+      } catch {
+        const seeded = seedPages(workspace)
+        setPages(seeded)
+        localStorage.setItem(storageKey, JSON.stringify(seeded))
+        if (seeded.length > 0) setActivePageId(seeded[0].id)
+      }
+    } else {
+      const seeded = seedPages(workspace)
+      setPages(seeded)
+      localStorage.setItem(storageKey, JSON.stringify(seeded))
+      if (seeded.length > 0) setActivePageId(seeded[0].id)
+    }
+  }, [workspace, seedPages, logSystemMessage])
+
+  // Save changes to localStorage on page tree updates
+  const savePages = (updatedPages: Page[]) => {
+    setPages(updatedPages)
+    localStorage.setItem(`distill_pages_${workspace}`, JSON.stringify(updatedPages))
+    logSystemMessage("DATABASE", `Wrote ${updatedPages.length} active documents to storage key "distill_pages_${workspace}"`)
+  }
+
+  // Update page card
+  const handleUpdatePage = (updatedPage: Page) => {
+    const updatedList = pages.map(p => p.id === updatedPage.id ? { ...updatedPage, updatedAt: Date.now() } : p)
+    savePages(updatedList)
+  }
+
+  // Create new page inside active workspace context
+  const handleCreatePage = (type: "note" | "journal" | "planner" | "document" | "table") => {
+    let title = "New Note"
+    let content = ""
+    let metrics = undefined
+    let tasks = undefined
+    let rows = undefined
+
+    if (type === "journal") {
+      title = `📓 Daily Log - ${new Date().toLocaleDateString()}`
+      content = "Daily thoughts..."
+      metrics = { energy: 5, focus: 5, mood: 5 }
+    } else if (type === "planner") {
+      title = "📋 Task Kanban Board"
+      content = "Planner sprint lane board."
+      tasks = []
+    } else if (type === "document") {
+      title = "📖 Product Spec / Documentation"
+      content = "# Product Scope\n\nEnter technical spec contents..."
+    } else if (type === "table") {
+      title = "📊 Data Spreadsheet"
+      content = "Spreadsheet table block."
+      rows = []
+    }
+
+    const newPage: Page = {
+      id: Math.random().toString(36).substring(2, 9),
+      title,
+      content,
+      type,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      tags: [],
+      metrics,
+      tasks,
+      rows
+    }
+
+    const updatedPages = [newPage, ...pages]
+    savePages(updatedPages)
+    setActivePageId(newPage.id)
+    logSystemMessage("DATABASE", `Created new document card "${title}" [Type: ${type}]`)
+  }
+
+  // Delete page
+  const handleDeletePage = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const filtered = pages.filter(p => p.id !== id)
+    savePages(filtered)
+    if (activePageId === id && filtered.length > 0) {
+      setActivePageId(filtered[0].id)
+    } else if (filtered.length === 0) {
+      setActivePageId("")
+    }
+    logSystemMessage("DATABASE", `Deleted document ID "${id}"`)
+  }
+
+  // Sync theme with document class and localStorage
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem("distill_theme", theme)
+  }, [theme])
+
+  // Monitor Ollama Local connection latency
+  useEffect(() => {
+    const pingOllama = async () => {
+      const start = performance.now()
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 1500)
+      try {
+        const response = await fetch("http://localhost:11434/api/tags", {
+          signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+        if (response.ok) {
+          const latency = performance.now() - start
+          setOllamaLatency(latency)
+          setIsOllamaOnline(true)
+          logSystemMessage("OLLAMA", `Local handshake OK: active tags ping returned in ${latency.toFixed(0)}ms`)
+        } else {
+          setOllamaLatency(null)
+          setIsOllamaOnline(false)
+        }
+      } catch {
+        clearTimeout(timeoutId)
+        setOllamaLatency(null)
+        setIsOllamaOnline(false)
+      }
+    }
+    pingOllama()
+    const interval = setInterval(pingOllama, 8000)
+    return () => clearInterval(interval)
+  }, [logSystemMessage])
+
+  // Keyboard shortcut listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Toggle sidebar: Option + B
+      if (e.altKey && e.code === "KeyB") {
+        e.preventDefault()
+        setIsSidebarCollapsed(prev => !prev)
+      }
+      // Toggle AI Sidecar: Option + S
+      if (e.altKey && e.code === "KeyS") {
+        e.preventDefault()
+        setIsSidecarOpen(prev => !prev)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
+  // JSON Workspace Backup Export
+  const handleExportWorkspace = () => {
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(pages))
+      const downloadAnchor = document.createElement("a")
+      downloadAnchor.setAttribute("href", dataStr)
+      downloadAnchor.setAttribute("download", `distill_backup_${workspace}_${Date.now().toString().slice(-6)}.json`)
+      downloadAnchor.click()
+      logSystemMessage("SYSTEM", `Exported JSON workspace backup of context "${workspace.toUpperCase()}" successfully`)
+    } catch {
+      logSystemMessage("ERROR", "Failed to export JSON workspace backup")
+    }
+  }
+
+  // JSON Workspace Backup Import
+  const handleImportWorkspace = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string) as Page[]
+        if (Array.isArray(parsed)) {
+          savePages(parsed)
+          if (parsed.length > 0) setActivePageId(parsed[0].id)
+          logSystemMessage("SYSTEM", `Restored workspace context "${workspace.toUpperCase()}" with ${parsed.length} entries successfully`)
+          alert("Workspace context backup restored successfully!")
+        } else {
+          throw new Error("Invalid file schema")
+        }
+      } catch {
+        logSystemMessage("ERROR", "Failed to restore backup file: parsing schema invalid")
+        alert("Failed to restore backup: JSON format invalid")
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  const handleClearWorkspace = () => {
+    if (confirm("Are you absolutely sure you want to clear this workspace context? This cannot be undone!")) {
+      savePages([])
+      setActivePageId("")
+      logSystemMessage("SYSTEM", `Workspace context "${workspace.toUpperCase()}" cleared successfully`)
+    }
+  }
+
+  // Full text client filtering
+  const filteredPages = pages.filter(p => {
+    const matchSearch = searchTerm.toLowerCase()
+    return (
+      p.title.toLowerCase().includes(matchSearch) ||
+      p.content.toLowerCase().includes(matchSearch) ||
+      p.tags?.some(t => t.toLowerCase().includes(matchSearch))
+    )
+  })
+
+  // Grab active page
+  const activePage = pages.find(p => p.id === activePageId)
+
+  // Floating AI sidecar triggers
+  const triggerSidecar = (tool: "rewrite" | "ladder" | "decision" | "reading") => {
+    setActiveSidecarTool(tool)
+    setIsSidecarOpen(true)
+  }
+
+  // Helper icons for type mapping
+  const getTypeIcon = (type: string) => {
+    if (type === "journal") return <Brain size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "planner") return <ListTodo size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "document") return <BookOpen size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "table") return <Database size={14} style={{ color: "var(--text-secondary)" }} />
+    return <Feather size={14} style={{ color: "var(--text-secondary)" }} />
+  }
+
+  return (
+    <div className={`dashboard-layout ${isSidebarCollapsed ? "collapsed" : ""}`}>
+      {/* Background Pixel Grid Backdrop Overlay */}
+      <div className="pixel-grid-backdrop"></div>
+
+      {/* Sidebar Navigation */}
+      <aside 
+        className="sidebar-cyber"
+        style={{
+          padding: "20px 14px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          height: "100vh",
+          position: "sticky",
+          top: 0,
+          zIndex: 10
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: "18px", height: "85%" }}>
+          {/* Active Workspace Context Selector */}
+          {!isSidebarCollapsed ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px", position: "relative" }}>
+              <span style={{ fontSize: "9px", color: "var(--text-muted)", fontWeight: "700", fontFamily: "var(--font-mono)", paddingLeft: "4px" }}>
+                WORKSPACE CONTEXT
+              </span>
+              
+              {/* Premium Custom Dropdown Button */}
+              <button
+                onClick={() => setIsWorkspaceMenuOpen(!isWorkspaceMenuOpen)}
+                className="workspace-selector-select"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  textAlign: "left",
+                  background: "rgba(255, 255, 255, 0.02)",
+                  border: "1px solid var(--border-muted)",
+                  padding: "8px 12px",
+                  borderRadius: "var(--radius-sm)",
+                  color: "#ffffff",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-display)",
+                  fontWeight: "600",
+                  fontSize: "13px",
+                  transition: "var(--transition-smooth)",
+                  outline: "none",
+                  width: "100%"
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  {workspace === "enterprise" && <Briefcase size={13} style={{ color: "var(--text-secondary)" }} />}
+                  {workspace === "startup" && <Rocket size={13} style={{ color: "var(--text-secondary)" }} />}
+                  {workspace === "personal" && <User size={13} style={{ color: "var(--text-secondary)" }} />}
+                  <span>
+                    {workspace === "enterprise" && "Enterprise Docs"}
+                    {workspace === "startup" && "Startup Sprint"}
+                    {workspace === "personal" && "Personal Core"}
+                  </span>
+                </div>
+                <ChevronDown size={13} style={{ opacity: 0.6, transform: isWorkspaceMenuOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+              </button>
+
+              {/* Floating Custom Choices Panel */}
+              {isWorkspaceMenuOpen && (
+                <div
+                  className="slash-popover"
+                  style={{
+                    position: "absolute",
+                    top: "105%",
+                    left: 0,
+                    right: 0,
+                    width: "100%",
+                    background: "rgba(10, 10, 14, 0.96)",
+                    border: "1px solid var(--border-active)",
+                    borderRadius: "var(--radius-sm)",
+                    boxShadow: "0 10px 30px rgba(0, 0, 0, 0.7)",
+                    zIndex: 50,
+                    padding: "4px"
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setWorkspace("enterprise")
+                      setIsWorkspaceMenuOpen(false)
+                    }}
+                    className={`slash-item ${workspace === "enterprise" ? "selected" : ""}`}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                  >
+                    <Briefcase size={13} />
+                    <span>Enterprise Docs</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setWorkspace("startup")
+                      setIsWorkspaceMenuOpen(false)
+                    }}
+                    className={`slash-item ${workspace === "startup" ? "selected" : ""}`}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                  >
+                    <Rocket size={13} />
+                    <span>Startup Sprint</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setWorkspace("personal")
+                      setIsWorkspaceMenuOpen(false)
+                    }}
+                    className={`slash-item ${workspace === "personal" ? "selected" : ""}`}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "8px" }}
+                  >
+                    <User size={13} />
+                    <span>Personal Core</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, margin: "0 auto" }}>
+              <Database size={16} style={{ color: "var(--accent-primary)" }} />
+            </div>
+          )}
+
+          {/* Search bar */}
+          {!isSidebarCollapsed && (
+            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+              <Search size={14} style={{ position: "absolute", left: "10px", color: "var(--text-muted)" }} />
+              <input
+                type="text"
+                placeholder="Quick search..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="input-premium"
+                style={{ paddingLeft: "32px", fontSize: "12px", background: "rgba(0,0,0,0.3)" }}
+              />
+            </div>
+          )}
+
+          {/* Intelligent Dock (AI Copilot workspace) */}
+          {!isSidebarCollapsed ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <span style={{ fontSize: "9px", color: "var(--text-muted)", letterSpacing: "0.08em", fontWeight: "700", fontFamily: "var(--font-mono)", paddingLeft: "8px" }}>
+                INTELLIGENT DOCK
+              </span>
+              <button
+                onClick={() => {
+                  if (document.startViewTransition) {
+                    document.startViewTransition(() => setActivePageId("copilot"))
+                  } else {
+                    setActivePageId("copilot")
+                  }
+                }}
+                className={`sidebar-page-item ${activePageId === "copilot" ? "active" : ""}`}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                <Sparkles size={14} style={{ color: "var(--accent-secondary)" }} />
+                <span>AI Workspace Copilot</span>
+              </button>
+            </div>
+          ) : (
+            <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, margin: "0 auto", cursor: "pointer" }} onClick={() => setActivePageId("copilot")}>
+              <Sparkles size={16} style={{ color: "var(--accent-secondary)" }} />
+            </div>
+          )}
+
+          {/* Document list tree header */}
+          {!isSidebarCollapsed && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px" }}>
+              <span style={{ fontSize: "10px", color: "var(--text-muted)", letterSpacing: "0.08em", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
+                DOCUMENTS HUB
+              </span>
+              <button 
+                onClick={() => handleCreatePage("note")} 
+                title="Create Quick Note"
+                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", cursor: "pointer" }}
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+          )}
+
+          {/* Core Documents List */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", overflowY: "auto", flex: 1, paddingRight: "2px" }}>
+            {filteredPages.map(page => {
+              const isActive = activePageId === page.id
+              return (
+                <button
+                  key={page.id}
+                  onClick={() => {
+                    if (document.startViewTransition) {
+                      document.startViewTransition(() => setActivePageId(page.id))
+                    } else {
+                      setActivePageId(page.id)
+                    }
+                  }}
+                  className={`sidebar-page-item ${isActive ? "active" : ""}`}
+                  title={page.title}
+                >
+                  {getTypeIcon(page.type)}
+                  {!isSidebarCollapsed && (
+                    <>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {page.title}
+                      </span>
+                      {/* Trash hover action */}
+                      {pages.length > 0 && (
+                        <Trash2
+                          size={12}
+                          className="trash-hover"
+                          style={{
+                            color: "var(--text-muted)",
+                            cursor: "pointer",
+                            transition: "var(--transition-smooth)"
+                          }}
+                          onClick={(e) => handleDeletePage(page.id, e)}
+                        />
+                      )}
+                    </>
+                  )}
+                </button>
+              )
+            })}
+            
+            {filteredPages.length === 0 && !isSidebarCollapsed && (
+              <span style={{ fontSize: "11px", color: "var(--text-muted)", textAlign: "center", padding: "10px" }}>
+                No pages match search
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Footer Navigation */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          {!isSidebarCollapsed && (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", background: "rgba(255,255,255,0.015)", border: "1px solid var(--border-muted)", padding: "10px", borderRadius: "var(--radius-sm)", marginBottom: "8px" }}>
+              <span style={{ fontSize: "9px", color: "var(--text-muted)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>NEW DATABASE BLOCK</span>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                <button onClick={() => handleCreatePage("note")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                  <Edit3 size={11} style={{ opacity: 0.8 }} />
+                  <span>Note</span>
+                </button>
+                <button onClick={() => handleCreatePage("document")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                  <BookOpen size={11} style={{ opacity: 0.8 }} />
+                  <span>Doc</span>
+                </button>
+                <button onClick={() => handleCreatePage("planner")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                  <ListTodo size={11} style={{ opacity: 0.8 }} />
+                  <span>Planner</span>
+                </button>
+                <button onClick={() => handleCreatePage("table")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                  <Database size={11} style={{ opacity: 0.8 }} />
+                  <span>Table</span>
+                </button>
+                <button onClick={() => handleCreatePage("journal")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", gridColumn: "span 2", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                  <Calendar size={11} style={{ opacity: 0.8 }} />
+                  <span>Daily Log</span>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Toggle sidebar button */}
+          <button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            title="Toggle Sidebar (⌥B)"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              padding: "10px 12px",
+              background: "transparent",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: "12px",
+              fontFamily: "var(--font-display)",
+              width: "100%",
+              transition: "var(--transition-smooth)"
+            }}
+          >
+            {isSidebarCollapsed ? <ChevronRight size={15} /> : (
+              <>
+                <ChevronLeft size={15} />
+                <span style={{ fontSize: "11px", fontWeight: "600" }}>Collapse View</span>
+              </>
+            )}
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Workspace Frame */}
+      <main style={{ padding: "32px 40px", display: "flex", flexDirection: "column", gap: "32px", overflowY: "auto", height: "100vh", position: "relative" }}>
+        
+        {/* Top Control Bar with Model Route Selectors */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "20px", gap: "20px" }}>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <span style={{ fontSize: "10px", color: "var(--text-muted)", fontWeight: "700", letterSpacing: "0.08em", fontFamily: "var(--font-mono)" }}>
+              CURRENT COGNITIVE ROUTE
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+              <Activity size={14} style={{ color: "var(--accent-secondary)" }} />
+              <h3 id="main-heading" tabIndex={-1} style={{ fontSize: "15px", fontWeight: "600", color: "var(--text-primary)", fontFamily: "var(--font-display)", outline: "none" }}>
+                {provider === "ollama" ? `Local Engine: ${model || "No model selected"}` : `Cloud API: ${provider.toUpperCase()} (${model})`}
+              </h3>
+              {provider === "ollama" && (
+                <span style={{ 
+                  fontSize: "10px", 
+                  background: isOllamaOnline ? "rgba(16, 185, 129, 0.08)" : "rgba(244, 63, 94, 0.08)",
+                  border: `1px solid ${isOllamaOnline ? "rgba(16, 185, 129, 0.2)" : "rgba(244, 63, 94, 0.2)"}`,
+                  color: isOllamaOnline ? "var(--accent-success)" : "var(--accent-danger)",
+                  padding: "1px 6px",
+                  borderRadius: "10px",
+                  fontWeight: "600",
+                  fontFamily: "var(--font-mono)"
+                }}>
+                  {isOllamaOnline ? `${ollamaLatency ? ollamaLatency.toFixed(0) : "0"}ms` : "offline"}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "center" }}>
+            {/* Select Provider */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <span style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "600", fontFamily: "var(--font-display)" }}>Provider</span>
+              <select 
+                value={provider} 
+                onChange={(e) => handleProviderChange(e.target.value)} 
+                className="input-premium"
+                style={{ width: "165px", padding: "8px 12px", fontSize: "12.5px" }}
+              >
+                <option value="ollama">Ollama (Local)</option>
+                <option value="openai">OpenAI (Cloud)</option>
+                <option value="gemini">Gemini (Cloud)</option>
+                <option value="anthropic">Anthropic (Cloud)</option>
+              </select>
+            </div>
+
+            {/* Select Model */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <span style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "600", fontFamily: "var(--font-display)" }}>Model Route Override</span>
+              <select 
+                value={model} 
+                onChange={(e) => setModel(e.target.value)} 
+                className="input-premium"
+                disabled={activeModels.length === 0}
+                style={{ width: "220px", padding: "8px 12px", fontSize: "12.5px" }}
+              >
+                {activeModels.length > 0 ? (
+                  activeModels.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))
+                ) : (
+                  <option value="">No models available</option>
+                )}
+              </select>
+            </div>
+
+            {/* Settings Quick Tab Trigger */}
+            <button
+              onClick={() => {
+                if (document.startViewTransition) {
+                  document.startViewTransition(() => setActivePageId("settings"))
+                } else {
+                  setActivePageId("settings")
+                }
+              }}
+              className="btn-secondary"
+              style={{ padding: "8px 12px", display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "16px" }}
+            >
+              <Settings size={13} />
+              <span>Workspace Sync</span>
+            </button>
+
+            {/* Premium Theme Switcher Toggle */}
+            <button
+              onClick={() => {
+                const nextTheme = theme === "light" ? "default" : "light"
+                if (document.startViewTransition) {
+                  document.startViewTransition(() => setTheme(nextTheme))
+                } else {
+                  setTheme(nextTheme)
+                }
+                logSystemMessage("SYSTEM", `Toggled workspace theme to ${nextTheme.toUpperCase()}`)
+              }}
+              className="btn-secondary"
+              style={{ 
+                padding: "8px 10px", 
+                display: "inline-flex", 
+                alignItems: "center", 
+                justifyContent: "center", 
+                marginTop: "16px",
+                borderRadius: "8px",
+                cursor: "pointer"
+              }}
+              title={theme === "light" ? "Switch to Obsidian Graphite Dark" : "Switch to Alabaster Light"}
+            >
+              {theme === "light" ? <Moon size={13} style={{ transform: "rotate(15deg)" }} /> : <Sun size={13} style={{ color: "#f59e0b" }} />}
+            </button>
+
+            {/* Ask AI Sidecar toggle button */}
+            <button
+              onClick={() => setIsSidecarOpen(!isSidecarOpen)}
+              className="btn-premium"
+              style={{
+                background: "var(--bg-secondary)",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border-active)",
+                padding: "8px 14px",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                marginTop: "16px",
+                boxShadow: isSidecarOpen ? "0 0 15px var(--glow-color)" : "none"
+              }}
+              title="Toggle AI Sidecar Panel (⌥S)"
+            >
+              <Sparkles size={14} style={{ color: "var(--accent-primary)" }} />
+              <span style={{ fontSize: "12.5px", fontWeight: "600" }}>Ask AI Sidecar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Tab Routing / Active Page Editor Grid */}
+        <div style={{ flex: 1 }}>
+          {activePageId === "copilot" ? (
+            <WorkspaceCopilot 
+              pages={pages}
+              onUpdatePages={savePages}
+              activePageId={activePageId}
+              setActivePageId={setActivePageId}
+              provider={provider}
+              model={model}
+              apiKeys={apiKeys}
+              isOllamaOnline={isOllamaOnline}
+              logSystemMessage={logSystemMessage}
+            />
+          ) : activePageId === "settings" ? (
+            /* Settings overlay panel dashboard */
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "32px", width: "100%" }}>
+              
+              {/* Left Column Settings */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
+                
+                {/* Backup & Restore HUD */}
+                <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "20px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
+                    <Database size={18} style={{ color: "var(--accent-primary)" }} />
+                    <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>
+                      Backup & Database HUD
+                    </h3>
+                  </div>
+                  <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    Import or export your entire pages list database as a single JSON file. Restores contexts instantly.
+                  </p>
+                  
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+                    <button 
+                      onClick={handleExportWorkspace}
+                      className="btn-premium"
+                      style={{ padding: "10px 16px", fontSize: "12.5px", display: "inline-flex", alignItems: "center", gap: "8px" }}
+                    >
+                      <Download size={14} />
+                      <span>Export JSON Workspace</span>
+                    </button>
+
+                    <label 
+                      className="btn-secondary"
+                      style={{ padding: "10px 16px", fontSize: "12.5px", display: "inline-flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
+                    >
+                      <Upload size={14} />
+                      <span>Restore Import</span>
+                      <input 
+                        type="file" 
+                        accept=".json"
+                        onChange={handleImportWorkspace} 
+                        style={{ display: "none" }}
+                      />
+                    </label>
+
+                    <button 
+                      onClick={handleClearWorkspace}
+                      className="btn-secondary"
+                      style={{ padding: "10px 16px", fontSize: "12.5px", color: "var(--accent-danger)", borderColor: "rgba(239,68,68,0.2)" }}
+                    >
+                      <span>Reset Workspace</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* API Keys Configuration */}
+                <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "20px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
+                    <Key size={18} style={{ color: "var(--accent-primary)" }} />
+                    <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>
+                      BYOK Cloud Credentials
+                    </h3>
+                  </div>
+                  {/* OpenAI */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>OpenAI API Key</label>
+                    <input
+                      type="password"
+                      value={apiKeys.openai}
+                      onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
+                      placeholder="sk-proj-..."
+                      className="input-premium"
+                    />
+                  </div>
+                  {/* Gemini */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Gemini API Key</label>
+                    <input
+                      type="password"
+                      value={apiKeys.gemini}
+                      onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
+                      placeholder="AIzaSy..."
+                      className="input-premium"
+                    />
+                  </div>
+                  {/* Anthropic */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Anthropic API Key</label>
+                    <input
+                      type="password"
+                      value={apiKeys.anthropic}
+                      onChange={(e) => setApiKeys({ ...apiKeys, anthropic: e.target.value })}
+                      placeholder="sk-ant-..."
+                      className="input-premium"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column Settings */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
+                
+                {/* Workspace Aesthetics */}
+                <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
+                    <Moon size={18} style={{ color: "var(--accent-secondary)" }} />
+                    <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>Theme customizer</h3>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <button onClick={() => setTheme("default")} className={`btn-secondary ${theme === "default" ? "active" : ""}`} style={{ fontSize: "12px", width: "100%" }}>Obsidian Graphite</button>
+                    <button onClick={() => setTheme("light")} className={`btn-secondary ${theme === "light" ? "active" : ""}`} style={{ fontSize: "12px", width: "100%" }}>Alabaster Light</button>
+                    <button onClick={() => setTheme("vercel")} className={`btn-secondary ${theme === "vercel" ? "active" : ""}`} style={{ fontSize: "12px", width: "100%" }}>Vercel Silver</button>
+                    <button onClick={() => setTheme("emerald")} className={`btn-secondary ${theme === "emerald" ? "active" : ""}`} style={{ fontSize: "12px", width: "100%" }}>Emerald Jade</button>
+                    <button onClick={() => setTheme("sunset")} className={`btn-secondary ${theme === "sunset" ? "active" : ""}`} style={{ fontSize: "12px", gridColumn: "span 2", width: "100%" }}>Copper Sunset</button>
+                  </div>
+                </div>
+
+                {/* Local Ollama status */}
+                <OllamaManager 
+                  onModelsLoaded={setOllamaModels}
+                  selectedModel={provider === "ollama" ? model : ""}
+                  onSelectModel={setModel}
+                />
+
+                {/* Real-time System Console Audit logs */}
+                <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
+                    <Activity size={18} style={{ color: "var(--accent-success)" }} />
+                    <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>
+                      System Console Audit Logs
+                    </h3>
+                  </div>
+                  
+                  <div className="system-console-panel">
+                    {systemLogs.map((log, idx) => (
+                      <div key={idx} className="log-line">
+                        <span className="log-timestamp">[{log.time}]</span>
+                        <span className={`log-tag ${log.tag.toLowerCase()}`}>{log.tag}</span>
+                        <span className="log-msg">{log.message}</span>
+                      </div>
+                    ))}
+                    {systemLogs.length === 0 && (
+                      <div style={{ color: "var(--text-muted)", fontSize: "11px", textAlign: "center", padding: "10px" }}>
+                        Console is active. Awaiting system logs...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          ) : activePage ? (
+            /* Render active workspace document */
+            activePage.type === "planner" ? (
+              <KanbanBoard page={activePage} onUpdatePage={handleUpdatePage} />
+            ) : activePage.type === "journal" ? (
+              <JournalLogger page={activePage} onUpdatePage={handleUpdatePage} />
+            ) : activePage.type === "table" ? (
+              <DatabaseTable page={activePage} onUpdatePage={handleUpdatePage} />
+            ) : (
+              <DocumentEditor 
+                page={activePage} 
+                onUpdatePage={handleUpdatePage} 
+                provider={provider} 
+                model={model} 
+                apiKeys={apiKeys}
+                onTriggerAI={triggerSidecar}
+              />
+            )
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "360px", color: "var(--text-muted)", gap: "10px" }}>
+              <Brain size={28} />
+              <span>Select or create a Notion document to begin your workflow.</span>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Dynamic Collapsible Notion AI Sidecar Panel */}
+      <aside className={`sidecar-panel ${isSidecarOpen ? "" : "closed"}`}>
+        <div style={{ display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Sparkles size={16} style={{ color: "var(--accent-primary)" }} />
+            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+              NOTION AI DIALOGUE SIDECAR
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsSidecarOpen(false)}
+            style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Sidecar Tool Select Tab Bar */}
+        <div style={{ display: "flex", gap: "4px", background: "rgba(0,0,0,0.3)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-muted)" }}>
+          {(["rewrite", "ladder", "decision", "reading"] as const).map((tool) => (
+            <button
+              key={tool}
+              onClick={() => setActiveSidecarTool(tool)}
+              style={{
+                flex: 1,
+                padding: "6px 8px",
+                fontSize: "10px",
+                background: activeSidecarTool === tool ? "rgba(255,255,255,0.05)" : "transparent",
+                border: "none",
+                borderRadius: "4px",
+                color: activeSidecarTool === tool ? "#ffffff" : "var(--text-secondary)",
+                fontWeight: "700",
+                cursor: "pointer",
+                transition: "var(--transition-smooth)"
+              }}
+            >
+              {tool.toUpperCase()}
+            </button>
+          ))}
+        </div>
+
+        {/* Sidecar execution deck */}
+        <div style={{ flex: 1, overflowY: "auto", paddingRight: "2px" }}>
+          {activeSidecarTool === "rewrite" && (
+            <RewriteRoom provider={provider} model={model} apiKeys={apiKeys} />
+          )}
+          {activeSidecarTool === "ladder" && (
+            <ConceptLadder provider={provider} model={model} apiKeys={apiKeys} />
+          )}
+          {activeSidecarTool === "decision" && (
+            <DecisionUnpacker provider={provider} model={model} apiKeys={apiKeys} />
+          )}
+          {activeSidecarTool === "reading" && (
+            <ReadingCompanion provider={provider} model={model} apiKeys={apiKeys} />
+          )}
+        </div>
+      </aside>
+    </div>
+  )
+}
