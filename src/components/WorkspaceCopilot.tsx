@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react"
-import { Send, FileText, CheckCircle2, Pin, RefreshCw } from "lucide-react"
+import { Send, FileText, CheckCircle2, Pin, RefreshCw, Sparkles, Brain, User, Activity } from "lucide-react"
 import { Page } from "../App"
 
 interface WorkspaceCopilotProps {
@@ -248,75 +248,134 @@ export default function WorkspaceCopilot({
       {/* LEFT COLUMN: Main Chat surface deck */}
       <div className="glass-card" style={{ display: "flex", flexDirection: "column", height: "100%", padding: "20px", background: "rgba(0,0,0,0.15)" }}>
         
-        {/* Chat Messages Scrolling Port */}
-        <div style={{ flex: 1, overflowY: "auto", paddingRight: "10px", display: "flex", flexDirection: "column", gap: "16px", marginBottom: "20px" }}>
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignSelf: msg.sender === "user" ? "flex-end" : "flex-start",
-                maxWidth: "75%",
-                gap: "6px"
-              }}
-            >
-              <div
-                style={{
-                  background: msg.sender === "user" ? "var(--accent-primary)" : "rgba(255,255,255,0.035)",
-                  color: msg.sender === "user" ? "var(--bg-primary)" : "var(--text-primary)",
-                  border: msg.sender === "user" ? "1px solid transparent" : "1px solid var(--border-muted)",
-                  padding: "14px 18px",
-                  borderRadius: msg.sender === "user" ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                  fontSize: "13.5px",
-                  lineHeight: "1.6",
-                  whiteSpace: "pre-wrap",
-                  fontFamily: "var(--font-body)",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
-                }}
-              >
-                {msg.text}
-                
-                {/* Embedded Tasks Cards */}
-                {msg.tasksList && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px", borderTop: "1px solid var(--border-muted)", paddingTop: "10px" }}>
-                    {msg.tasksList.map((t, idx) => (
-                      <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.2)", padding: "8px 12px", borderRadius: "6px", fontSize: "12px" }}>
-                        <span style={{ fontWeight: "600", color: "#ffffff" }}>{t.title}</span>
-                        <span className={`priority-pill ${t.priority.toLowerCase()}`} style={{ fontSize: "9px" }}>{t.priority}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Chat action triggers */}
-              {msg.actions && msg.actions.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "4px" }}>
-                  {msg.actions.map((act, idx) => (
-                    <button
-                      key={idx}
-                      onClick={act.action}
-                      className="btn-secondary"
-                      style={{ padding: "6px 12px", fontSize: "11px", borderRadius: "6px" }}
-                    >
-                      {act.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              
-              <span style={{ fontSize: "9px", color: "var(--text-muted)", alignSelf: msg.sender === "user" ? "flex-end" : "flex-start", fontFamily: "var(--font-mono)" }}>
-                {msg.timestamp}
+        {/* Visual Copilot Active Route Header Banner */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "14px", marginBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div className="copilot-avatar-ring" style={{ width: "24px", height: "24px", borderColor: "var(--accent-secondary)" }}>
+              <Sparkles size={11} style={{ color: "var(--accent-secondary)" }} />
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <h3 style={{ fontSize: "13px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+                AI Workspace Copilot Console
+              </h3>
+              <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "1px" }}>
+                Cognitive route: {provider.toUpperCase()} / {model || "Llama 3.2"}
               </span>
             </div>
-          ))}
+          </div>
           
-          {/* Typing Indicator */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ 
+              display: "inline-block", 
+              width: "6px", 
+              height: "6px", 
+              borderRadius: "50%", 
+              background: isOllamaOnline ? "var(--accent-success)" : "var(--accent-warning)", 
+              boxShadow: isOllamaOnline ? "0 0 8px var(--accent-success)" : "none" 
+            }}></span>
+            <span style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-secondary)", fontWeight: "600" }}>
+              {isOllamaOnline ? "LOCAL ENGINE ONLINE" : "OFFLINE HANDSHAKE"}
+            </span>
+          </div>
+        </div>
+
+        {/* Chat Messages Scrolling Port */}
+        <div style={{ flex: 1, overflowY: "auto", paddingRight: "10px", display: "flex", flexDirection: "column", gap: "16px", marginBottom: "20px" }}>
+          {messages.map((msg, i) => {
+            const isUser = msg.sender === "user"
+            return (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  alignSelf: isUser ? "flex-end" : "flex-start",
+                  maxWidth: "80%",
+                  flexDirection: isUser ? "row-reverse" : "row",
+                  alignItems: "flex-start"
+                }}
+              >
+                {/* Avatar Icon on left/right depending on sender */}
+                {isUser ? (
+                  <div className="user-avatar-ring" title="User">
+                    <User size={13} style={{ color: "var(--bg-primary)" }} />
+                  </div>
+                ) : (
+                  <div className="copilot-avatar-ring" title="AI Copilot">
+                    <Brain size={13} style={{ color: "var(--accent-secondary)" }} />
+                  </div>
+                )}
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", alignItems: isUser ? "flex-end" : "flex-start" }}>
+                  <div
+                    style={{
+                      background: isUser ? "var(--accent-primary)" : "rgba(255,255,255,0.035)",
+                      color: isUser ? "var(--bg-primary)" : "var(--text-primary)",
+                      border: isUser ? "1px solid transparent" : "1px solid var(--border-muted)",
+                      padding: "12px 16px",
+                      borderRadius: isUser ? "14px 14px 2px 14px" : "14px 14px 14px 2px",
+                      fontSize: "13.5px",
+                      lineHeight: "1.6",
+                      whiteSpace: "pre-wrap",
+                      fontFamily: "var(--font-body)",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                      transition: "var(--transition-smooth)"
+                    }}
+                  >
+                    {msg.text}
+                    
+                    {/* Embedded Tasks Cards */}
+                    {msg.tasksList && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "12px", borderTop: "1px solid var(--border-muted)", paddingTop: "10px" }}>
+                        {msg.tasksList.map((t, idx) => (
+                          <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.2)", padding: "8px 12px", borderRadius: "6px", fontSize: "12px" }}>
+                            <span style={{ fontWeight: "600", color: "#ffffff" }}>{t.title}</span>
+                            <span className={`priority-pill ${t.priority.toLowerCase()}`} style={{ fontSize: "9px" }}>{t.priority}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Chat action triggers */}
+                  {msg.actions && msg.actions.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "6px" }}>
+                      {msg.actions.map((act, idx) => (
+                        <button
+                          key={idx}
+                          onClick={act.action}
+                          className="action-pill-premium"
+                        >
+                          {act.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <span style={{ fontSize: "9.5px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
+                    {msg.timestamp}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+          
+          {/* Dynamic Pulse Typing Indicator */}
           {isTyping && (
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", alignSelf: "flex-start", background: "rgba(255,255,255,0.02)", padding: "10px 16px", borderRadius: "10px", border: "1px solid var(--border-muted)" }}>
-              <RefreshCw size={12} style={{ animation: "spin 1.5s linear infinite", color: "var(--accent-secondary)" }} />
-              <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>AI Copilot is processing database...</span>
+            <div style={{ display: "flex", gap: "12px", alignSelf: "flex-start", alignItems: "center" }}>
+              <div className="copilot-avatar-ring" style={{ width: "32px", height: "32px" }}>
+                <Brain size={13} style={{ color: "var(--accent-secondary)" }} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", background: "rgba(255,255,255,0.02)", padding: "12px 18px", borderRadius: "14px 14px 14px 2px", border: "1px solid var(--border-muted)", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+                <div className="bouncing-dots-loader">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  Copilot thinking...
+                </span>
+              </div>
             </div>
           )}
           
