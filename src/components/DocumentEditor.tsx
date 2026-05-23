@@ -1,9 +1,10 @@
 import { useState, useRef } from "react"
-import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download } from "lucide-react"
+import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2 } from "lucide-react"
 import { Page } from "../App"
 
 interface DocumentEditorProps {
   page: Page
+  pages: Page[]
   onUpdatePage: (updatedPage: Page) => void
   provider: string
   model: string
@@ -25,7 +26,7 @@ interface SlashOption {
   template: string
 }
 
-export default function DocumentEditor({ page, onUpdatePage, onTriggerAI }: DocumentEditorProps) {
+export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI }: DocumentEditorProps) {
   const [editMode, setEditMode] = useState<EditMode>("edit")
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [slashSearch, setSlashSearch] = useState("")
@@ -57,6 +58,7 @@ export default function DocumentEditor({ page, onUpdatePage, onTriggerAI }: Docu
     { key: "h2", label: "Heading 2", desc: "Medium section header", icon: <Heading2 size={14} />, template: "## " },
     { key: "todo", label: "To-Do Checklist", desc: "Task checklist item", icon: <ListTodo size={14} />, template: "- [ ] " },
     { key: "code", label: "Code Block", desc: "Monospace syntax block", icon: <Code size={14} />, template: "\n```javascript\n\n```\n" },
+    { key: "chart", label: "Interactive Database Chart", desc: "Embed dynamic visual database chart block", icon: <BarChart2 size={14} style={{ color: "var(--accent-success)" }} />, template: "\n[chart]\n" },
     { key: "time", label: "Current Time", desc: "Insert local timestamp", icon: <Calendar size={14} />, template: new Date().toLocaleString() },
     { key: "ai", label: "Ask Notion AI", desc: "Slide open AI Dialogue sidecar", icon: <Sparkles size={14} style={{ color: "var(--accent-primary)" }} />, template: "" }
   ]
@@ -148,6 +150,101 @@ export default function DocumentEditor({ page, onUpdatePage, onTriggerAI }: Docu
   const renderMarkdownPreview = (text: string) => {
     const lines = text.split("\n")
     return lines.map((line, idx) => {
+      // Interactive [chart] block compiler
+      if (line.trim() === "[chart]") {
+        const tablePage = pages.find(p => p.type === "table" && p.rows && p.rows.length > 0)
+        if (!tablePage || !tablePage.rows) {
+          return (
+            <div key={idx} className="glass-card" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "10px", margin: "16px 0", background: "rgba(0,0,0,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <BarChart2 size={16} style={{ color: "var(--accent-warning)" }} />
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "#ffffff" }}>Interactive Database Chart</span>
+              </div>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)", lineHeight: "1.5" }}>
+                Active reference tables not found. Please **create a new Table block** in your sidebar and add rows to dynamically render visual data diagrams!
+              </span>
+            </div>
+          )
+        }
+
+        // Count row statuses
+        const statusMap = { "To-Do": 0, "In Progress": 0, "Done": 0 }
+        tablePage.rows.forEach(r => {
+          if (r.status === "Done") statusMap["Done"]++
+          else if (r.status === "In Progress" || r.status === "In-Progress") statusMap["In Progress"]++
+          else statusMap["To-Do"]++
+        })
+
+        const maxVal = Math.max(1, statusMap["To-Do"], statusMap["In Progress"], statusMap["Done"])
+        const pctToDo = (statusMap["To-Do"] / maxVal) * 100
+        const pctProgress = (statusMap["In Progress"] / maxVal) * 100
+        const pctDone = (statusMap["Done"] / maxVal) * 100
+
+        return (
+          <div key={idx} className="glass-card" style={{ padding: "24px", margin: "20px 0", display: "flex", flexDirection: "column", gap: "16px", background: "rgba(0,0,0,0.25)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <BarChart2 size={16} style={{ color: "var(--accent-success)" }} />
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "#ffffff" }}>
+                  Status Distribution: {tablePage.title.replace(/^[^\w]*/, "")}
+                </span>
+              </div>
+              <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
+                LIVE DATABASE WIDGET
+              </span>
+            </div>
+
+            {/* Glowing SVG Charts Canvas */}
+            <div style={{ display: "flex", justifyContent: "space-around", alignItems: "flex-end", height: "140px", padding: "10px 0", borderBottom: "1px solid var(--border-muted)" }}>
+              {/* Bar 1: To-Do */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "25%" }}>
+                <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--accent-warning)" }}>{statusMap["To-Do"]}</div>
+                <div style={{ 
+                  width: "28px", 
+                  height: `${Math.max(6, pctToDo * 0.9)}px`, 
+                  background: "rgba(245, 158, 11, 0.2)",
+                  border: "1px solid var(--accent-warning)",
+                  borderRadius: "4px 4px 0 0",
+                  transition: "height 0.5s ease",
+                  boxShadow: "0 0 10px rgba(245, 158, 11, 0.1)"
+                }}></div>
+                <span style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "600" }}>To-Do</span>
+              </div>
+
+              {/* Bar 2: In Progress */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "25%" }}>
+                <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--accent-info)" }}>{statusMap["In Progress"]}</div>
+                <div style={{ 
+                  width: "28px", 
+                  height: `${Math.max(6, pctProgress * 0.9)}px`, 
+                  background: "rgba(59, 130, 246, 0.2)",
+                  border: "1px solid var(--accent-info)",
+                  borderRadius: "4px 4px 0 0",
+                  transition: "height 0.5s ease",
+                  boxShadow: "0 0 10px rgba(59, 130, 246, 0.1)"
+                }}></div>
+                <span style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "600" }}>In Progress</span>
+              </div>
+
+              {/* Bar 3: Done */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "8px", width: "25%" }}>
+                <div style={{ fontSize: "11px", fontWeight: "700", color: "var(--accent-success)" }}>{statusMap["Done"]}</div>
+                <div style={{ 
+                  width: "28px", 
+                  height: `${Math.max(6, pctDone * 0.9)}px`, 
+                  background: "rgba(16, 185, 129, 0.2)",
+                  border: "1px solid var(--accent-success)",
+                  borderRadius: "4px 4px 0 0",
+                  transition: "height 0.5s ease",
+                  boxShadow: "0 0 10px rgba(16, 185, 129, 0.1)"
+                }}></div>
+                <span style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "600" }}>Done</span>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
       // H1 Header
       if (line.startsWith("# ")) {
         return (

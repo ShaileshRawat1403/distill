@@ -33,6 +33,7 @@ import KanbanBoard from "./components/KanbanBoard"
 import JournalLogger from "./components/JournalLogger"
 import DatabaseTable from "./components/DatabaseTable"
 import WorkspaceCopilot from "./components/WorkspaceCopilot"
+import CognitiveArena from "./components/CognitiveArena"
 import RewriteRoom from "./components/RewriteRoom"
 import ConceptLadder from "./components/ConceptLadder"
 import DecisionUnpacker from "./components/DecisionUnpacker"
@@ -583,6 +584,7 @@ export default function App() {
               <span style={{ fontSize: "9px", color: "var(--text-muted)", letterSpacing: "0.08em", fontWeight: "700", fontFamily: "var(--font-mono)", paddingLeft: "8px" }}>
                 INTELLIGENT DOCK
               </span>
+              
               <button
                 onClick={() => {
                   if (document.startViewTransition) {
@@ -597,10 +599,30 @@ export default function App() {
                 <Sparkles size={14} style={{ color: "var(--accent-secondary)" }} />
                 <span>AI Workspace Copilot</span>
               </button>
+
+              <button
+                onClick={() => {
+                  if (document.startViewTransition) {
+                    document.startViewTransition(() => setActivePageId("arena"))
+                  } else {
+                    setActivePageId("arena")
+                  }
+                }}
+                className={`sidebar-page-item ${activePageId === "arena" ? "active" : ""}`}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                <Activity size={14} style={{ color: "var(--accent-secondary)" }} />
+                <span>AI Cognitive Arena</span>
+              </button>
             </div>
           ) : (
-            <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, margin: "0 auto", cursor: "pointer" }} onClick={() => setActivePageId("copilot")}>
-              <Sparkles size={16} style={{ color: "var(--accent-secondary)" }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "center", margin: "0 auto" }}>
+              <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }} onClick={() => setActivePageId("copilot")} title="AI Workspace Copilot">
+                <Sparkles size={16} style={{ color: "var(--accent-secondary)" }} />
+              </div>
+              <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }} onClick={() => setActivePageId("arena")} title="AI Cognitive Arena">
+                <Activity size={16} style={{ color: "var(--accent-secondary)" }} />
+              </div>
             </div>
           )}
 
@@ -878,6 +900,16 @@ export default function App() {
               isOllamaOnline={isOllamaOnline}
               logSystemMessage={logSystemMessage}
             />
+          ) : activePageId === "arena" ? (
+            <CognitiveArena 
+              pages={pages}
+              provider={provider}
+              model={model}
+              apiKeys={apiKeys}
+              isOllamaOnline={isOllamaOnline}
+              ollamaModels={ollamaModels}
+              logSystemMessage={logSystemMessage}
+            />
           ) : activePageId === "settings" ? (
             /* Settings overlay panel dashboard */
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "32px", width: "100%" }}>
@@ -1038,6 +1070,7 @@ export default function App() {
             ) : (
               <DocumentEditor 
                 page={activePage} 
+                pages={pages}
                 onUpdatePage={handleUpdatePage} 
                 provider={provider} 
                 model={model} 
