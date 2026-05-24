@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react"
-import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2, Mail, Share2, CloudLightning, Send, X } from "lucide-react"
+import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2, Mail, Share2, CloudLightning, Send, X, BookOpen } from "lucide-react"
 import { Page } from "../App"
 
 interface DocumentEditorProps {
@@ -83,6 +83,96 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       setDriveBackupComplete(true)
       console.log(`Backup completed to Google Drive: ${page.title}`)
     }, 1500)
+  }
+
+  // Academic & Reference Hub states
+  const [citations, setCitations] = useState([
+    { id: "c1", author: "Rawat, S.", title: "Autonomous Multi-Agent Networks", year: "2026", doi: "10.1007/s11276-026-04" },
+    { id: "c2", author: "Layek, A.", title: "Decentralized Cached Index Topologies", year: "2026", doi: "10.1109/tsc.2026.1" },
+    { id: "c3", author: "Borg, O.", title: "Glowmorphic Vector Processing", year: "2025", doi: "10.1145/3571884" }
+  ])
+  const [newAuthor, setNewAuthor] = useState("")
+  const [newTitle, setNewTitle] = useState("")
+  const [newYear, setNewYear] = useState("")
+  const [newDoi, setNewDoi] = useState("")
+  const [isAcademicHubOpen, setIsAcademicHubOpen] = useState(false)
+
+  // Prose Calculations
+  const paragraphsCount = page.content.split(/\n\s*\n/).filter(Boolean).length
+  const sentencesCount = page.content.split(/[.!?]+/).filter(s => s.trim().length > 0).length
+
+  const calculateReadingLevel = () => {
+    const words = wordsCount
+    const sentences = sentencesCount || 1
+    if (words < 10) return "Starter Scale"
+    const wordsPerSentence = words / sentences
+    const grade = Math.round(0.39 * wordsPerSentence + 11.8 * (15 / 100) - 15.59)
+    const clamp = Math.max(5, Math.min(18, grade))
+    if (clamp >= 17) return "PhD Scholar (17+)"
+    if (clamp >= 15) return "Grad Student (15+)"
+    if (clamp >= 12) return "University Level"
+    if (clamp >= 9) return "High School"
+    return "Middle School"
+  }
+
+  const scanPassiveVoice = () => {
+    const matches = page.content.match(/\b(is|was|were|been|be|are|am|has\s+been|had\s+been|have\s+been)\s+([a-z]+ed|analyzed|established|verified|developed|created|written|run|pushed|saved|compiled|built)\b/gi)
+    return matches ? matches.length : 0
+  }
+
+  // Insert Inline Citation
+  const insertInlineCitation = (citation: typeof citations[0]) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    
+    const text = page.content
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    
+    const inlineStr = ` [${citation.author.split(",")[0]} et al., ${citation.year}]`
+    const updatedContent = text.substring(0, start) + inlineStr + text.substring(end)
+    
+    onUpdatePage({ ...page, content: updatedContent })
+    
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + inlineStr.length, start + inlineStr.length)
+    }, 50)
+  }
+
+  // Compile bibliography references
+  const handleCompileBibliography = () => {
+    if (page.content.includes("### References") || page.content.includes("### Bibliography")) {
+      alert("References bibliography are already compiled inside this document!")
+      return
+    }
+    
+    let bibText = "\n\n### References\n"
+    citations.forEach((c, index) => {
+      bibText += `${index + 1}. ${c.author} (${c.year}). *"${c.title}"*. DOI: [${c.doi}](https://doi.org/${c.doi})\n`
+    })
+    
+    onUpdatePage({ ...page, content: page.content + bibText })
+  }
+
+  // Add a citation reference source
+  const handleAddCitation = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!newAuthor.trim() || !newTitle.trim() || !newYear.trim()) return
+
+    const newCitation = {
+      id: Math.random().toString(36).substring(2, 9),
+      author: newAuthor.trim(),
+      title: newTitle.trim(),
+      year: newYear.trim(),
+      doi: newDoi.trim() || "10.1145/unknown"
+    }
+
+    setCitations(prev => [...prev, newCitation])
+    setNewAuthor("")
+    setNewTitle("")
+    setNewYear("")
+    setNewDoi("")
   }
 
   const handleCopyRaw = () => {
@@ -454,6 +544,15 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
           </button>
 
           <button
+            onClick={() => setIsAcademicHubOpen(true)}
+            className="btn-secondary"
+            style={{ padding: "8px 12px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <BookOpen size={12} />
+            <span>Scholar's Sanctum</span>
+          </button>
+
+          <button
             onClick={() => onTriggerAI("rewrite")}
             className="btn-premium"
             style={{ padding: "8px 14px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
@@ -656,6 +755,135 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
               </>
             )}
           </button>
+        </form>
+      </aside>
+
+      {/* Premium Sliding Scholar's Sanctum (Academic & Reference Hub) Drawer */}
+      <aside className={`share-drawer ${isAcademicHubOpen ? "" : "closed"}`}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <BookOpen size={16} style={{ color: "var(--accent-primary)" }} />
+            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+              Scholar's Sanctum
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsAcademicHubOpen(false)}
+            style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Prose Audit HUD */}
+        <div className="prose-analytics-card">
+          <div style={{ fontSize: "10.5px", fontWeight: "700", color: "#ffffff", borderBottom: "1px solid var(--border-muted)", paddingBottom: "6px", fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}>
+            PROSE AUDIT HUD METRICS
+          </div>
+          <div className="prose-audit-metric-row">
+            <span className="prose-audit-label">EST. READING GRADE</span>
+            <span className="prose-audit-value">{calculateReadingLevel()}</span>
+          </div>
+          <div className="prose-audit-metric-row">
+            <span className="prose-audit-label">PASSIVE VOICE DETECTED</span>
+            <span className={`prose-audit-value ${scanPassiveVoice() > 3 ? "warning" : ""}`}>
+              {scanPassiveVoice()} PHRASES
+            </span>
+          </div>
+          <div className="prose-audit-metric-row">
+            <span className="prose-audit-label">PARAGRAPHS TOTAL</span>
+            <span className="prose-audit-value">{paragraphsCount} BLOCKS</span>
+          </div>
+          <div className="prose-audit-metric-row">
+            <span className="prose-audit-label">SENTENCES SCANNED</span>
+            <span className="prose-audit-value">{sentencesCount} CLAUSES</span>
+          </div>
+        </div>
+
+        {/* Citations List reference manager */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", flex: 1, overflowY: "auto", paddingRight: "2px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
+              BIBLIOGRAPHY SOURCES ({citations.length})
+            </span>
+            <button
+              type="button"
+              onClick={handleCompileBibliography}
+              className="action-pill-premium"
+              style={{ fontSize: "9.5px", padding: "2px 8px" }}
+              title="Compile all references as APA/IEEE bibliography at bottom of text"
+            >
+              Compile References
+            </button>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {citations.map(c => (
+              <div key={c.id} className="citation-row-item">
+                <div style={{ fontSize: "12px", fontWeight: "600", color: "#ffffff" }}>{c.title}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
+                  <span>{c.author} ({c.year})</span>
+                  <button
+                    type="button"
+                    disabled={editMode !== "edit"}
+                    onClick={() => insertInlineCitation(c)}
+                    className="action-pill-premium"
+                    style={{ fontSize: "9px", padding: "1px 6px" }}
+                    title="Insert inline citation at cursor position"
+                  >
+                    Insert inline
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Add Source form */}
+        <form onSubmit={handleAddCitation} style={{ borderTop: "1px solid var(--border-muted)", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <span style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
+            ADD CITATION SOURCE
+          </span>
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "8px" }}>
+            <input
+              type="text"
+              value={newAuthor}
+              onChange={(e) => setNewAuthor(e.target.value)}
+              placeholder="e.g. Rawat, S."
+              className="input-premium"
+              required
+              style={{ padding: "6px 8px", fontSize: "11.5px" }}
+            />
+            <input
+              type="text"
+              value={newYear}
+              onChange={(e) => setNewYear(e.target.value)}
+              placeholder="Year"
+              className="input-premium"
+              required
+              style={{ padding: "6px 8px", fontSize: "11.5px" }}
+            />
+          </div>
+          <input
+            type="text"
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Paper title"
+            className="input-premium"
+            required
+            style={{ padding: "6px 8px", fontSize: "11.5px" }}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "8px" }}>
+            <input
+              type="text"
+              value={newDoi}
+              onChange={(e) => setNewDoi(e.target.value)}
+              placeholder="DOI (e.g. 10.1109/tsc...)"
+              className="input-premium"
+              style={{ padding: "6px 8px", fontSize: "11.5px" }}
+            />
+            <button type="submit" className="btn-premium" style={{ padding: "6px", fontSize: "11.5px" }}>Add</button>
+          </div>
         </form>
       </aside>
     </div>

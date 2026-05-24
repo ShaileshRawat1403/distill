@@ -10,7 +10,10 @@ interface KanbanBoardProps {
 export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const [newTaskPriority, setNewTaskPriority] = useState<"low" | "medium" | "high">("medium")
+  const [newTaskLabel, setNewTaskLabel] = useState<"research" | "drafting" | "review" | "revision" | "">("")
+  const [newTaskAssignee, setNewTaskAssignee] = useState<"me" | "ai" | "tm" | "">("")
   const [showAddForm, setShowAddForm] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
 
   // Kanban details modal states
   const [selectedTask, setSelectedTask] = useState<KanbanTask | null>(null)
@@ -18,6 +21,8 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
   const [taskDescription, setTaskDescription] = useState("")
   const [taskDueDate, setTaskDueDate] = useState("")
   const [editedTaskTitle, setEditedTaskTitle] = useState("")
+  const [taskLabel, setTaskLabel] = useState<"research" | "drafting" | "review" | "revision" | "">("")
+  const [taskAssignee, setTaskAssignee] = useState<"me" | "ai" | "tm" | "">("")
 
   const tasks = page.tasks || []
 
@@ -31,12 +36,17 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
       title: newTaskTitle.trim(),
       status: "todo",
       priority: newTaskPriority,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      label: newTaskLabel ? newTaskLabel : undefined,
+      assignee: newTaskAssignee ? newTaskAssignee : undefined
     }
 
     const updatedTasks = [...tasks, newTask]
     onUpdatePage({ ...page, tasks: updatedTasks })
     setNewTaskTitle("")
+    setNewTaskPriority("medium")
+    setNewTaskLabel("")
+    setNewTaskAssignee("")
     setShowAddForm(false)
   }
 
@@ -69,6 +79,8 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
     setSelectedTask(task)
     setEditedTaskTitle(task.title)
     setTaskDescription(task.description || "")
+    setTaskLabel(task.label || "")
+    setTaskAssignee(task.assignee || "")
     if (task.dueDate) {
       setTaskDueDate(new Date(task.dueDate).toISOString().substring(0, 10))
     } else {
@@ -87,7 +99,9 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
           title: editedTaskTitle.trim() || t.title,
           description: taskDescription.trim() || undefined,
           priority: selectedTask.priority,
-          dueDate: taskDueDate ? new Date(taskDueDate).getTime() : undefined
+          dueDate: taskDueDate ? new Date(taskDueDate).getTime() : undefined,
+          label: taskLabel ? taskLabel : undefined,
+          assignee: taskAssignee ? taskAssignee : undefined
         }
       }
       return t
@@ -125,10 +139,23 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
     onUpdatePage({ ...page, tasks: updatedTasks })
   }
 
+  // Filter tasks based on search query (matches title, description, label, assignee, or priority)
+  const filteredTasks = tasks.filter(t => {
+    if (!searchQuery.trim()) return true
+    const query = searchQuery.toLowerCase()
+    return (
+      t.title.toLowerCase().includes(query) ||
+      (t.description || "").toLowerCase().includes(query) ||
+      (t.label || "").toLowerCase().includes(query) ||
+      (t.assignee || "").toLowerCase().includes(query) ||
+      t.priority.toLowerCase().includes(query)
+    )
+  })
+
   // Separate tasks by column status
-  const todoTasks = tasks.filter(t => t.status === "todo")
-  const progressTasks = tasks.filter(t => t.status === "progress")
-  const doneTasks = tasks.filter(t => t.status === "done")
+  const todoTasks = filteredTasks.filter(t => t.status === "todo")
+  const progressTasks = filteredTasks.filter(t => t.status === "progress")
+  const doneTasks = filteredTasks.filter(t => t.status === "done")
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
@@ -167,6 +194,62 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
         </button>
       </div>
 
+      {/* Search Cockpit Header */}
+      <div className="glass-card" style={{ padding: "12px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "16px", flexWrap: "wrap", background: "rgba(255, 255, 255, 0.01)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: "240px" }}>
+          <span style={{ fontSize: "11px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontWeight: "700" }}>
+            SEARCH / FILTER:
+          </span>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by title, description, label, assignee..."
+            className="input-premium"
+            style={{ padding: "6px 12px", fontSize: "12px", flex: 1 }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="btn-secondary"
+              style={{ padding: "4px 8px", fontSize: "10.5px" }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "11px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontWeight: "700", marginRight: "4px" }}>
+            PRESETS:
+          </span>
+          <button
+            type="button"
+            onClick={() => setSearchQuery("research")}
+            className="action-pill-premium"
+            style={{ fontSize: "9.5px", padding: "2px 8px" }}
+          >
+            Research
+          </button>
+          <button
+            type="button"
+            onClick={() => setSearchQuery("me")}
+            className="action-pill-premium"
+            style={{ fontSize: "9.5px", padding: "2px 8px" }}
+          >
+            My Tasks
+          </button>
+          <button
+            type="button"
+            onClick={() => setSearchQuery("high")}
+            className="action-pill-premium"
+            style={{ fontSize: "9.5px", padding: "2px 8px" }}
+          >
+            High Priority
+          </button>
+        </div>
+      </div>
+
       {/* Add Task Quick Form */}
       {showAddForm && (
         <form className="glass-card" onSubmit={handleAddTask} style={{ padding: "20px", display: "flex", flexWrap: "wrap", gap: "12px", alignItems: "center" }}>
@@ -194,9 +277,38 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
             </select>
           </div>
 
+          <div>
+            <select
+              value={newTaskLabel}
+              onChange={(e) => setNewTaskLabel(e.target.value as any)}
+              className="input-premium"
+              style={{ width: "130px" }}
+            >
+              <option value="">🏷️ No Label</option>
+              <option value="research">🟣 Research</option>
+              <option value="drafting">💖 Drafting</option>
+              <option value="review">💛 Review</option>
+              <option value="revision">💚 Revision</option>
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={newTaskAssignee}
+              onChange={(e) => setNewTaskAssignee(e.target.value as any)}
+              className="input-premium"
+              style={{ width: "130px" }}
+            >
+              <option value="">👤 Unassigned</option>
+              <option value="me">🔵 Me (ME)</option>
+              <option value="ai">🟣 AI (AI)</option>
+              <option value="tm">🟢 Team (TM)</option>
+            </select>
+          </div>
+
           <div style={{ display: "flex", gap: "8px" }}>
             <button type="submit" className="btn-premium" style={{ padding: "8px 14px", fontSize: "12.5px" }}>Create</button>
-            <button type="button" onClick={() => setShowAddForm(false)} className="btn-secondary" style={{ padding: "8px 14px", fontSize: "12.5px" }}>Cancel</button>
+            <button type="button" onClick={() => { setShowAddForm(false); setNewTaskLabel(""); setNewTaskAssignee(""); }} className="btn-secondary" style={{ padding: "8px 14px", fontSize: "12.5px" }}>Cancel</button>
           </div>
         </form>
       )}
@@ -217,6 +329,13 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", minHeight: "360px" }}>
             {todoTasks.map(task => (
               <div key={task.id} className="kanban-card">
+                {task.label && (
+                  <div style={{ marginBottom: "6px", display: "flex" }}>
+                    <span className={`kanban-label-badge ${task.label}`}>
+                      {task.label}
+                    </span>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
                     <span 
@@ -234,15 +353,22 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
                 </div>
                 
                 {/* Footer metrics and shift handlers */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
-                  <button 
-                    onClick={() => handleCyclePriority(task.id)}
-                    className={`priority-pill ${task.priority}`}
-                    style={{ border: "none", cursor: "pointer" }}
-                    title="Click to cycle priority"
-                  >
-                    {task.priority}
-                  </button>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <button 
+                      onClick={() => handleCyclePriority(task.id)}
+                      className={`priority-pill ${task.priority}`}
+                      style={{ border: "none", cursor: "pointer" }}
+                      title="Click to cycle priority"
+                    >
+                      {task.priority}
+                    </button>
+                    {task.assignee && (
+                      <span className={`assignee-avatar-badge ${task.assignee}`} title={`Assigned to: ${task.assignee.toUpperCase()}`}>
+                        {task.assignee.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
 
                   <div style={{ display: "flex", gap: "4px" }}>
                     <button disabled style={{ opacity: 0.2, background: "transparent", border: "none", color: "var(--text-muted)" }}>
@@ -277,6 +403,13 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", minHeight: "360px" }}>
             {progressTasks.map(task => (
               <div key={task.id} className="kanban-card" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
+                {task.label && (
+                  <div style={{ marginBottom: "6px", display: "flex" }}>
+                    <span className={`kanban-label-badge ${task.label}`}>
+                      {task.label}
+                    </span>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
                     <span 
@@ -293,15 +426,22 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
                   </button>
                 </div>
                 
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
-                  <button 
-                    onClick={() => handleCyclePriority(task.id)}
-                    className={`priority-pill ${task.priority}`}
-                    style={{ border: "none", cursor: "pointer" }}
-                    title="Click to cycle priority"
-                  >
-                    {task.priority}
-                  </button>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <button 
+                      onClick={() => handleCyclePriority(task.id)}
+                      className={`priority-pill ${task.priority}`}
+                      style={{ border: "none", cursor: "pointer" }}
+                      title="Click to cycle priority"
+                    >
+                      {task.priority}
+                    </button>
+                    {task.assignee && (
+                      <span className={`assignee-avatar-badge ${task.assignee}`} title={`Assigned to: ${task.assignee.toUpperCase()}`}>
+                        {task.assignee.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
 
                   <div style={{ display: "flex", gap: "4px" }}>
                     <button onClick={() => handleShiftStatus(task.id, "left")} className="btn-secondary" style={{ padding: "3px 6px", borderRadius: "4px" }}>
@@ -336,6 +476,13 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
           <div style={{ display: "flex", flexDirection: "column", gap: "10px", minHeight: "360px" }}>
             {doneTasks.map(task => (
               <div key={task.id} className="kanban-card" style={{ borderColor: "rgba(16,185,129,0.15)", background: "rgba(16,185,129,0.01)" }}>
+                {task.label && (
+                  <div style={{ marginBottom: "6px", display: "flex" }}>
+                    <span className={`kanban-label-badge ${task.label}`} style={{ opacity: 0.8 }}>
+                      {task.label}
+                    </span>
+                  </div>
+                )}
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
                     <span 
@@ -352,15 +499,22 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
                   </button>
                 </div>
                 
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "4px" }}>
-                  <button 
-                    onClick={() => handleCyclePriority(task.id)}
-                    className={`priority-pill ${task.priority}`}
-                    style={{ border: "none", cursor: "pointer" }}
-                    title="Click to cycle priority"
-                  >
-                    {task.priority}
-                  </button>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "10px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <button 
+                      onClick={() => handleCyclePriority(task.id)}
+                      className={`priority-pill ${task.priority}`}
+                      style={{ border: "none", cursor: "pointer" }}
+                      title="Click to cycle priority"
+                    >
+                      {task.priority}
+                    </button>
+                    {task.assignee && (
+                      <span className={`assignee-avatar-badge ${task.assignee}`} style={{ opacity: 0.8 }} title={`Assigned to: ${task.assignee.toUpperCase()}`}>
+                        {task.assignee.toUpperCase()}
+                      </span>
+                    )}
+                  </div>
 
                   <div style={{ display: "flex", gap: "4px" }}>
                     <button onClick={() => handleShiftStatus(task.id, "left")} className="btn-secondary" style={{ padding: "3px 6px", borderRadius: "4px" }}>
@@ -468,6 +622,40 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
                   >
                     Cycle: {selectedTask.priority}
                   </button>
+                </div>
+              </div>
+
+              {/* Category Label & Assignee Row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>CATEGORY LABEL</label>
+                  <select
+                    value={taskLabel}
+                    onChange={(e) => setTaskLabel(e.target.value as any)}
+                    className="input-premium"
+                    style={{ fontSize: "12.5px", padding: "6px 10px" }}
+                  >
+                    <option value="">No Label</option>
+                    <option value="research">Research (🟣)</option>
+                    <option value="drafting">Drafting (💖)</option>
+                    <option value="review">Review (💛)</option>
+                    <option value="revision">Revision (💚)</option>
+                  </select>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>ASSIGNEE</label>
+                  <select
+                    value={taskAssignee}
+                    onChange={(e) => setTaskAssignee(e.target.value as any)}
+                    className="input-premium"
+                    style={{ fontSize: "12.5px", padding: "6px 10px" }}
+                  >
+                    <option value="">Unassigned</option>
+                    <option value="me">Me (ME)</option>
+                    <option value="ai">AI (AI)</option>
+                    <option value="tm">Team (TM)</option>
+                  </select>
                 </div>
               </div>
 

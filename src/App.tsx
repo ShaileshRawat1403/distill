@@ -68,6 +68,8 @@ export interface KanbanTask {
   createdAt: number
   description?: string
   dueDate?: number  // unix timestamp ms
+  label?: "research" | "drafting" | "review" | "revision"
+  assignee?: "me" | "ai" | "tm"
 }
 
 export interface SpreadsheetRow {
@@ -265,6 +267,24 @@ export default function App() {
           tags: ["Specs", "Infrastructure"]
         },
         {
+          id: "e3",
+          title: "📖 PhD Thesis: Autonomous Multi-Agent Cognitive Architectures",
+          content: `# Autonomous Multi-Agent Cognitive Architectures\n\n### Abstract\nThis research establishes a next-generation decentralized cognitive runtime designed to orchestrate autonomous multi-agent reasoning graphs at sub-100ms processing latencies.\n\n### 1. Introduction\nModern LLM pipelines are heavily constrained by rigid sequential execution paths. This work explores parallel multi-agent reasoning graphs [Rawat et al., 2026].\n\n### 2. Theoretical Mathematical Framework\nOur cognitive mapping scales according to the following mathematical density function:\n\n$$\n\\mathcal{C}(A, S) = \\sum_{i=1}^{N} \\gamma_i \\cdot \\psi(a_i, s_{t})\n$$\n\n### 3. Methodology\nUsing local all-MiniLM vector caching models, we audit reasoning latency across various edge topologies. See our results database sheet for detailed statistics.`,
+          type: "document",
+          createdAt: Date.now() - 1000,
+          updatedAt: Date.now() - 1000,
+          tags: ["Academic", "Thesis", "AI"]
+        },
+        {
+          id: "e4",
+          title: "📄 Tech White Paper: Decentralized Vector Cache Indexes",
+          content: `# High-Throughput Decentralized Vector Cache Indexes\n\n### Abstract\nThis white paper introduces a zero-copy decentralized index layer optimized for extreme vector retrieval speeds across edge clusters.\n\n### I. Cache Topology Architecture\nOur caching runtime is based on HNSW graphs mapped directly to persistent virtual tables.\n\n### II. Latency Calculations\nThe cache retrieval threshold is formulated as:\n\n$$\nT_{latency} = \\mathcal{O}(d \\cdot \\log N) + \\epsilon\n$$\n\n### III. References\n1. Shailesh et al. (2026). "Decentralized Indexing at Scale." Journal of Neural Cache.\n2. Ananya et al. (2026). "Decentralized Neural Vectors." IEEE Systems Review.`,
+          type: "document",
+          createdAt: Date.now() - 2000,
+          updatedAt: Date.now() - 2000,
+          tags: ["IEEE", "WhitePaper", "Database"]
+        },
+        {
           id: "e2",
           title: "📊 Core Enterprise Projects Database",
           content: "Spreadsheet database grid for major project tracking and assignments.",
@@ -290,9 +310,9 @@ export default function App() {
           updatedAt: Date.now(),
           tags: ["Productivity", "Sprint"],
           tasks: [
-            { id: "t1", title: "Deploy static static bundle to Netlify edge", status: "done", priority: "high", createdAt: Date.now() },
-            { id: "t2", title: "Complete visual redesign of Distill", status: "progress", priority: "high", createdAt: Date.now() },
-            { id: "t3", title: "Connect Ollama local inference streams", status: "todo", priority: "medium", createdAt: Date.now() }
+            { id: "t1", title: "Deploy static static bundle to Netlify edge", status: "done", priority: "high", createdAt: Date.now(), label: "revision", assignee: "tm" },
+            { id: "t2", title: "Complete visual redesign of Distill", status: "progress", priority: "high", createdAt: Date.now(), label: "drafting", assignee: "me" },
+            { id: "t3", title: "Connect Ollama local inference streams", status: "todo", priority: "medium", createdAt: Date.now(), label: "research", assignee: "ai" }
           ]
         }
       ]

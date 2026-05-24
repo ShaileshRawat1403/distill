@@ -1456,3 +1456,148 @@ h1, h2, h3, h4, h5, h6 {
   border-color: rgba(0, 0, 0, 0.08) !important;
 }
 
+/* ==========================================================================
+   SCHOLAR'S SANCTUM (ACADEMIC REFERENCE HUB) & RICH KANBAN UPGRADES
+   ========================================================================== */
+
+/* Prose Audit HUD card styles */
+.prose-analytics-card {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: var(--transition-smooth);
+}
+.prose-analytics-card:hover {
+  border-color: var(--border-active);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.prose-audit-metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.prose-audit-label {
+  color: var(--text-secondary);
+}
+
+.prose-audit-value {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.prose-audit-value.warning {
+  color: var(--accent-warning) !important;
+}
+
+/* Reference Citation Row Item */
+.citation-row-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.01);
+  transition: var(--transition-smooth);
+}
+.citation-row-item:hover {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: var(--border-active);
+}
+
+/* Kanban Category Label Badges */
+.kanban-label-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  border: 1px solid transparent;
+}
+
+.kanban-label-badge.research {
+  background: rgba(168, 85, 247, 0.08);
+  border-color: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.kanban-label-badge.drafting {
+  background: rgba(236, 72, 153, 0.08);
+  border-color: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
+.kanban-label-badge.review {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.kanban-label-badge.revision {
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+/* Kanban Assignee visual profile initial badge */
+.assignee-avatar-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 8px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.assignee-avatar-badge.me {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+}
+
+.assignee-avatar-badge.ai {
+  background: linear-gradient(135deg, #ec4899 0%, #a855f7 100%);
+  box-shadow: 0 0 6px rgba(236, 72, 153, 0.4);
+}
+
+.assignee-avatar-badge.tm {
+  background: linear-gradient(135deg, #10b981 0%, #047857 100%);
+}
+
+/* Light mode overrides for academic widgets and badges */
+[data-theme="light"] .prose-analytics-card {
+  background: rgba(0, 0, 0, 0.01) !important;
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+[data-theme="light"] .prose-analytics-card:hover {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
+[data-theme="light"] .prose-audit-value {
+  color: #0f172a !important;
+}
+
+[data-theme="light"] .citation-row-item {
+  background: rgba(0, 0, 0, 0.01) !important;
+  border-color: rgba(0, 0, 0, 0.04) !important;
+}
+[data-theme="light"] .citation-row-item:hover {
+  background: rgba(0, 0, 0, 0.02) !important;
+  border-color: rgba(0, 0, 0, 0.08) !important;
+}
+
