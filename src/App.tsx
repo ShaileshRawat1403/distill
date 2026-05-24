@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { 
   Feather, 
   Brain, 
@@ -39,6 +39,23 @@ import ConceptLadder from "./components/ConceptLadder"
 import DecisionUnpacker from "./components/DecisionUnpacker"
 import ReadingCompanion from "./components/ReadingCompanion"
 import OllamaManager from "./components/OllamaManager"
+import PromptSurgeon from "./components/PromptSurgeon"
+import WebLLMManager from "./components/WebLLMManager"
+import SearchModal from "./components/SearchModal"
+import MoodBoard from "./components/MoodBoard"
+import {
+  loadPages,
+  upsertPage,
+  bulkUpsertPages,
+  deletePage,
+  replaceWorkspace,
+  getSetting,
+  setSetting,
+  migrateFromLocalStorage,
+} from "./db"
+import { warmUp, onEmbedProgress } from "./utils/embeddings"
+import { syncPageEmbedding, removePageEmbedding, syncEmbeddings } from "./utils/semanticSearch"
+import { suggestTags } from "./utils/autoTag"
 
 // Page interfaces
 export interface KanbanTask {
@@ -47,6 +64,8 @@ export interface KanbanTask {
   status: "todo" | "progress" | "done"
   priority: "low" | "medium" | "high"
   createdAt: number
+  description?: string
+  dueDate?: number  // unix timestamp ms
 }
 
 export interface SpreadsheetRow {
@@ -62,7 +81,7 @@ export interface Page {
   id: string
   title: string
   content: string
-  type: "note" | "journal" | "planner" | "document" | "table"
+  type: "note" | "journal" | "planner" | "document" | "table" | "moodboard"
   createdAt: number
   updatedAt: number
   tags?: string[]
@@ -81,13 +100,17 @@ type WorkspaceContext = "enterprise" | "startup" | "personal"
 type ThemeOption = "default" | "vercel" | "emerald" | "sunset" | "light"
 
 export default function App() {
-  const [workspace, setWorkspace] = useState<WorkspaceContext>(
-    (localStorage.getItem("distill_active_workspace") as WorkspaceContext) || "enterprise"
-  )
+  // Workspace boots as "enterprise"; real value loads from IndexedDB on mount
+  const [workspace, setWorkspace] = useState<WorkspaceContext>("enterprise")
+  const [dbReady, setDbReady] = useState(false)
+  // Ref to avoid double-seeding in React StrictMode
+  const didSeedRef = useRef<Record<string, boolean>>({})
+  // Embedding model status
+  const [embedStatus, setEmbedStatus] = useState<"idle" | "loading" | "ready" | "error">("idle")
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState<boolean>(false)
   const [pages, setPages] = useState<Page[]>([])
   const [activePageId, setActivePageId] = useState<string>("")
-  const [searchTerm, setSearchTerm] = useState<string>("")
+  // searchTerm removed — global search now lives in SearchModal (Cmd+K)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false)
   const [theme, setTheme] = useState<ThemeOption>((localStorage.getItem("distill_theme") as ThemeOption) || "default")
   
@@ -98,9 +121,12 @@ export default function App() {
   const [ollamaLatency, setOllamaLatency] = useState<number | null>(null)
   const [isOllamaOnline, setIsOllamaOnline] = useState<boolean>(false)
 
+  // Search modal
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+
   // AI Sidecar States
   const [isSidecarOpen, setIsSidecarOpen] = useState<boolean>(false)
-  const [activeSidecarTool, setActiveSidecarTool] = useState<"rewrite" | "ladder" | "decision" | "reading">("rewrite")
+  const [activeSidecarTool, setActiveSidecarTool] = useState<"rewrite" | "ladder" | "decision" | "reading" | "surgeon">("rewrite")
 
   // Provider and Model selection
   const [provider, setProvider] = useState<string>("ollama")
@@ -113,6 +139,8 @@ export default function App() {
     if (provider === "openai") return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
     if (provider === "gemini") return ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
     if (provider === "anthropic") return ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
+    if (provider === "groq") return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
+    if (provider === "webllm") return ["Phi-3.5-mini-instruct-q4f16_1-MLC", "Llama-3.2-3B-Instruct-q4f16_1-MLC", "gemma-2-2b-it-q4f16_1-MLC", "Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]
     return []
   }, [provider, ollamaModels])
 
@@ -129,6 +157,10 @@ export default function App() {
       defaultModel = "gemini-1.5-pro"
     } else if (newProvider === "anthropic") {
       defaultModel = "claude-3-5-sonnet"
+    } else if (newProvider === "groq") {
+      defaultModel = "llama-3.3-70b-versatile"
+    } else if (newProvider === "webllm") {
+      defaultModel = "Phi-3.5-mini-instruct-q4f16_1-MLC"
     }
     setModel(defaultModel)
     logSystemMessage("SYSTEM", `Switched AI provider to ${newProvider.toUpperCase()} (Default Model: ${defaultModel})`)
@@ -139,12 +171,47 @@ export default function App() {
     openai: localStorage.getItem("distill_api_key_openai") || "",
     anthropic: localStorage.getItem("distill_api_key_anthropic") || "",
     gemini: localStorage.getItem("distill_api_key_gemini") || "",
+    groq: localStorage.getItem("distill_api_key_groq") || "",
   })
 
-  // System audit logger
+  // System audit logger (defined early so bootstrap can use it)
   const logSystemMessage = useCallback((tag: "SYSTEM" | "DATABASE" | "OLLAMA" | "ERROR", message: string) => {
     const time = new Date().toLocaleTimeString()
     setSystemLogs(prev => [{ time, tag, message }, ...prev].slice(0, 100))
+  }, [])
+
+  // ── One-time DB + embedding bootstrap ─────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false
+
+    // Subscribe to embedding model load progress
+    const unsub = onEmbedProgress((status, progress) => {
+      setEmbedStatus(status)
+      if (status === "loading" && progress !== undefined && progress % 25 < 2) {
+        logSystemMessage("SYSTEM", `Embedding model loading… ${Math.round(progress)}%`)
+      }
+      if (status === "ready") logSystemMessage("SYSTEM", "Embedding model (all-MiniLM-L6-v2) ready")
+      if (status === "error") logSystemMessage("ERROR", "Embedding model failed to load")
+    })
+
+    ;(async () => {
+      await migrateFromLocalStorage()
+
+      const savedWs = await getSetting("active_workspace")
+      if (!cancelled && savedWs) setWorkspace(savedWs as WorkspaceContext)
+
+      if (!cancelled) setDbReady(true)
+      logSystemMessage("DATABASE", "IndexedDB (Dexie) initialised and ready")
+
+      // Warm up embedding model in background — non-blocking
+      warmUp()
+    })()
+
+    return () => {
+      cancelled = true
+      unsub()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Seeding Page Tree Database
@@ -211,51 +278,79 @@ export default function App() {
     }
   }, [logSystemMessage])
 
-  // Sync active pages with workspace key
+  // Sync active pages whenever workspace changes (runs after dbReady)
   useEffect(() => {
-    localStorage.setItem("distill_active_workspace", workspace)
-    const storageKey = `distill_pages_${workspace}`
-    const saved = localStorage.getItem(storageKey)
-    
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Page[]
-        setPages(parsed)
-        if (parsed.length > 0) {
-          setActivePageId(parsed[0].id)
-        } else {
-          setActivePageId("")
-        }
-        logSystemMessage("DATABASE", `Loaded workspace context "${workspace.toUpperCase()}" with ${parsed.length} pages`)
-      } catch {
+    if (!dbReady) return
+    let cancelled = false
+
+    ;(async () => {
+      // Persist active workspace selection
+      await setSetting("active_workspace", workspace)
+
+      const rows = await loadPages(workspace)
+
+      if (cancelled) return
+
+      if (rows.length > 0) {
+        setPages(rows)
+        setActivePageId(rows[0].id)
+        logSystemMessage("DATABASE", `Loaded ${rows.length} pages from IndexedDB for "${workspace.toUpperCase()}"`)
+        // Background: embed any pages that don't have fresh vectors yet
+        syncEmbeddings(workspace, rows).catch(() => {/* silent — non-critical */})
+      } else if (!didSeedRef.current[workspace]) {
+        didSeedRef.current[workspace] = true
         const seeded = seedPages(workspace)
         setPages(seeded)
-        localStorage.setItem(storageKey, JSON.stringify(seeded))
-        if (seeded.length > 0) setActivePageId(seeded[0].id)
+        setActivePageId(seeded.length > 0 ? seeded[0].id : "")
+        await bulkUpsertPages(workspace, seeded)
+        logSystemMessage("DATABASE", `Seeded ${seeded.length} default templates for "${workspace.toUpperCase()}"`)
+        syncEmbeddings(workspace, seeded).catch(() => {/* silent */})
+      } else {
+        setPages([])
+        setActivePageId("")
       }
-    } else {
-      const seeded = seedPages(workspace)
-      setPages(seeded)
-      localStorage.setItem(storageKey, JSON.stringify(seeded))
-      if (seeded.length > 0) setActivePageId(seeded[0].id)
-    }
-  }, [workspace, seedPages, logSystemMessage])
+    })()
 
-  // Save changes to localStorage on page tree updates
-  const savePages = (updatedPages: Page[]) => {
+    return () => { cancelled = true }
+  }, [workspace, dbReady, seedPages, logSystemMessage])
+
+  // Persist an updated page list to IndexedDB + React state
+  const savePages = useCallback((updatedPages: Page[]) => {
     setPages(updatedPages)
-    localStorage.setItem(`distill_pages_${workspace}`, JSON.stringify(updatedPages))
-    logSystemMessage("DATABASE", `Wrote ${updatedPages.length} active documents to storage key "distill_pages_${workspace}"`)
-  }
+    // Fire-and-forget async write — IndexedDB is durable on success
+    bulkUpsertPages(workspace, updatedPages).then(() => {
+      logSystemMessage("DATABASE", `Persisted ${updatedPages.length} documents to IndexedDB (workspace: ${workspace.toUpperCase()})`)
+    }).catch((err) => {
+      logSystemMessage("ERROR", `IndexedDB write failed: ${err?.message}`)
+    })
+  }, [workspace, logSystemMessage])
 
-  // Update page card
-  const handleUpdatePage = (updatedPage: Page) => {
-    const updatedList = pages.map(p => p.id === updatedPage.id ? { ...updatedPage, updatedAt: Date.now() } : p)
-    savePages(updatedList)
-  }
+  // Update a single page — targeted upsert + re-embed + auto-tag
+  const handleUpdatePage = useCallback((updatedPage: Page) => {
+    const stamped = { ...updatedPage, updatedAt: Date.now() }
+    setPages(prev => prev.map(p => p.id === stamped.id ? stamped : p))
+    upsertPage(workspace, stamped).catch((err) => {
+      logSystemMessage("ERROR", `IndexedDB page update failed: ${err?.message}`)
+    })
+    syncPageEmbedding(workspace, stamped).catch(() => {/* non-critical */})
+
+    // Auto-tag in background — only on document/note types with sufficient content
+    if (["note", "document", "journal"].includes(stamped.type) && stamped.content.length > 80) {
+      suggestTags(
+        stamped.title, stamped.content, stamped.tags ?? [],
+        provider, model, apiKeys, isOllamaOnline
+      ).then((updatedTags) => {
+        if (updatedTags.join() === (stamped.tags ?? []).join()) return // no change
+        const tagged = { ...stamped, tags: updatedTags }
+        setPages(prev => prev.map(p => p.id === tagged.id ? tagged : p))
+        upsertPage(workspace, tagged).catch(() => {/* silent */})
+        logSystemMessage("SYSTEM", `Auto-tagged "${stamped.title}": ${updatedTags.join(", ")}`)
+      }).catch(() => {/* silent */})
+    }
+  }, [workspace, provider, model, apiKeys, isOllamaOnline, logSystemMessage])
 
   // Create new page inside active workspace context
-  const handleCreatePage = (type: "note" | "journal" | "planner" | "document" | "table") => {
+  const handleCreatePage = (type: "note" | "journal" | "planner" | "document" | "table" | "moodboard") => {
     let title = "New Note"
     let content = ""
     let metrics = undefined
@@ -277,6 +372,9 @@ export default function App() {
       title = "📊 Data Spreadsheet"
       content = "Spreadsheet table block."
       rows = []
+    } else if (type === "moodboard") {
+      title = "🎨 Moodboard"
+      content = JSON.stringify({ cards: [], columns: 3, title: "Moodboard" })
     }
 
     const newPage: Page = {
@@ -293,22 +391,44 @@ export default function App() {
     }
 
     const updatedPages = [newPage, ...pages]
-    savePages(updatedPages)
+    setPages(updatedPages)
     setActivePageId(newPage.id)
-    logSystemMessage("DATABASE", `Created new document card "${title}" [Type: ${type}]`)
+    upsertPage(workspace, newPage).catch((err) => {
+      logSystemMessage("ERROR", `Failed to persist new page: ${err?.message}`)
+    })
+    syncPageEmbedding(workspace, newPage).catch(() => {/* silent */})
+    logSystemMessage("DATABASE", `Created "${title}" [${type}] in workspace ${workspace.toUpperCase()}`)
+
+    // Auto-tag after a brief delay (let the user start editing first)
+    if (["note", "document"].includes(type)) {
+      setTimeout(() => {
+        suggestTags(
+          newPage.title, newPage.content, newPage.tags ?? [],
+          provider, model, apiKeys, isOllamaOnline
+        ).then((updatedTags) => {
+          if (updatedTags.length === (newPage.tags ?? []).length) return
+          const tagged = { ...newPage, tags: updatedTags }
+          setPages(prev => prev.map(p => p.id === tagged.id ? tagged : p))
+          upsertPage(workspace, tagged).catch(() => {/* silent */})
+          logSystemMessage("SYSTEM", `Auto-tagged new page "${title}": ${updatedTags.join(", ")}`)
+        }).catch(() => {/* silent */})
+      }, 4000)
+    }
   }
 
-  // Delete page
+  // Delete page — targeted row delete, no full rewrite
   const handleDeletePage = (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     const filtered = pages.filter(p => p.id !== id)
-    savePages(filtered)
-    if (activePageId === id && filtered.length > 0) {
-      setActivePageId(filtered[0].id)
-    } else if (filtered.length === 0) {
-      setActivePageId("")
+    setPages(filtered)
+    if (activePageId === id) {
+      setActivePageId(filtered.length > 0 ? filtered[0].id : "")
     }
-    logSystemMessage("DATABASE", `Deleted document ID "${id}"`)
+    deletePage(workspace, id).catch((err) => {
+      logSystemMessage("ERROR", `IndexedDB delete failed: ${err?.message}`)
+    })
+    removePageEmbedding(workspace, id).catch(() => {/* silent */})
+    logSystemMessage("DATABASE", `Deleted page "${id}" from workspace ${workspace.toUpperCase()}`)
   }
 
   // Sync theme with document class and localStorage
@@ -351,6 +471,11 @@ export default function App() {
   // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Global search: Cmd+K / Ctrl+K
+      if ((e.metaKey || e.ctrlKey) && e.code === "KeyK") {
+        e.preventDefault()
+        setIsSearchOpen(true)
+      }
       // Toggle sidebar: Option + B
       if (e.altKey && e.code === "KeyB") {
         e.preventDefault()
@@ -389,15 +514,19 @@ export default function App() {
       try {
         const parsed = JSON.parse(event.target?.result as string) as Page[]
         if (Array.isArray(parsed)) {
-          savePages(parsed)
+          setPages(parsed)
           if (parsed.length > 0) setActivePageId(parsed[0].id)
-          logSystemMessage("SYSTEM", `Restored workspace context "${workspace.toUpperCase()}" with ${parsed.length} entries successfully`)
+          replaceWorkspace(workspace, parsed).then(() => {
+            logSystemMessage("SYSTEM", `Restored workspace "${workspace.toUpperCase()}" with ${parsed.length} pages`)
+          }).catch((err) => {
+            logSystemMessage("ERROR", `Import write failed: ${err?.message}`)
+          })
           alert("Workspace context backup restored successfully!")
         } else {
           throw new Error("Invalid file schema")
         }
       } catch {
-        logSystemMessage("ERROR", "Failed to restore backup file: parsing schema invalid")
+        logSystemMessage("ERROR", "Failed to restore backup: JSON format invalid")
         alert("Failed to restore backup: JSON format invalid")
       }
     }
@@ -406,38 +535,46 @@ export default function App() {
 
   const handleClearWorkspace = () => {
     if (confirm("Are you absolutely sure you want to clear this workspace context? This cannot be undone!")) {
-      savePages([])
+      setPages([])
       setActivePageId("")
-      logSystemMessage("SYSTEM", `Workspace context "${workspace.toUpperCase()}" cleared successfully`)
+      replaceWorkspace(workspace, []).then(() => {
+        logSystemMessage("SYSTEM", `Workspace "${workspace.toUpperCase()}" cleared`)
+      }).catch((err) => {
+        logSystemMessage("ERROR", `Clear failed: ${err?.message}`)
+      })
     }
   }
 
-  // Full text client filtering
-  const filteredPages = pages.filter(p => {
-    const matchSearch = searchTerm.toLowerCase()
-    return (
-      p.title.toLowerCase().includes(matchSearch) ||
-      p.content.toLowerCase().includes(matchSearch) ||
-      p.tags?.some(t => t.toLowerCase().includes(matchSearch))
-    )
-  })
+  // Pages shown in sidebar (all pages — search is in Cmd+K modal)
+  const filteredPages = pages
 
   // Grab active page
   const activePage = pages.find(p => p.id === activePageId)
 
   // Floating AI sidecar triggers
-  const triggerSidecar = (tool: "rewrite" | "ladder" | "decision" | "reading") => {
+  const triggerSidecar = (tool: "rewrite" | "ladder" | "decision" | "reading" | "surgeon") => {
     setActiveSidecarTool(tool)
     setIsSidecarOpen(true)
   }
 
   // Helper icons for type mapping
   const getTypeIcon = (type: string) => {
-    if (type === "journal") return <Brain size={14} style={{ color: "var(--text-secondary)" }} />
-    if (type === "planner") return <ListTodo size={14} style={{ color: "var(--text-secondary)" }} />
-    if (type === "document") return <BookOpen size={14} style={{ color: "var(--text-secondary)" }} />
-    if (type === "table") return <Database size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "journal")   return <Brain size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "planner")   return <ListTodo size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "document")  return <BookOpen size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "table")     return <Database size={14} style={{ color: "var(--text-secondary)" }} />
+    if (type === "moodboard") return <Sparkles size={14} style={{ color: "#f97316" }} />
     return <Feather size={14} style={{ color: "var(--text-secondary)" }} />
+  }
+
+  // Hold render until IndexedDB is bootstrapped to avoid flash of empty state
+  if (!dbReady) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", flexDirection: "column", gap: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontSize: "12px" }}>
+        <div style={{ width: "32px", height: "32px", border: "2px solid var(--border-muted)", borderTopColor: "var(--accent-primary)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+        <span>Initialising workspace…</span>
+      </div>
+    )
   }
 
   return (
@@ -563,19 +700,23 @@ export default function App() {
             </div>
           )}
 
-          {/* Search bar */}
+          {/* Search trigger */}
           {!isSidebarCollapsed && (
-            <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-              <Search size={14} style={{ position: "absolute", left: "10px", color: "var(--text-muted)" }} />
-              <input
-                type="text"
-                placeholder="Quick search..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="input-premium"
-                style={{ paddingLeft: "32px", fontSize: "12px", background: "rgba(0,0,0,0.3)" }}
-              />
-            </div>
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              style={{
+                display: "flex", alignItems: "center", gap: "8px",
+                padding: "8px 12px", borderRadius: "var(--radius-sm)",
+                background: "rgba(0,0,0,0.3)", border: "1px solid var(--border-muted)",
+                color: "var(--text-muted)", cursor: "pointer", width: "100%", textAlign: "left",
+                fontSize: "12px", fontFamily: "var(--font-body)",
+                transition: "var(--transition-smooth)",
+              }}
+            >
+              <Search size={13} style={{ flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>Search…</span>
+              <kbd style={{ fontSize: "9.5px", fontFamily: "var(--font-mono)", background: "rgba(255,255,255,0.05)", border: "1px solid var(--border-muted)", borderRadius: "4px", padding: "1px 5px", color: "var(--text-muted)" }}>⌘K</kbd>
+            </button>
           )}
 
           {/* Intelligent Dock (AI Copilot workspace) */}
@@ -714,9 +855,13 @@ export default function App() {
                   <Database size={11} style={{ opacity: 0.8 }} />
                   <span>Table</span>
                 </button>
-                <button onClick={() => handleCreatePage("journal")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", gridColumn: "span 2", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                <button onClick={() => handleCreatePage("journal")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
                   <Calendar size={11} style={{ opacity: 0.8 }} />
                   <span>Daily Log</span>
+                </button>
+                <button onClick={() => handleCreatePage("moodboard")} className="btn-secondary" style={{ padding: "6px", fontSize: "10.5px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "center", gap: "4px" }}>
+                  <Sparkles size={11} style={{ opacity: 0.8 }} />
+                  <span>Moodboard</span>
                 </button>
               </div>
             </div>
@@ -798,6 +943,8 @@ export default function App() {
                 <option value="openai">OpenAI (Cloud)</option>
                 <option value="gemini">Gemini (Cloud)</option>
                 <option value="anthropic">Anthropic (Cloud)</option>
+                <option value="groq">Groq (Fast Cloud)</option>
+                <option value="webllm">WebLLM (Browser GPU)</option>
               </select>
             </div>
 
@@ -889,7 +1036,7 @@ export default function App() {
         {/* Tab Routing / Active Page Editor Grid */}
         <div style={{ flex: 1 }}>
           {activePageId === "copilot" ? (
-            <WorkspaceCopilot 
+            <WorkspaceCopilot
               pages={pages}
               onUpdatePages={savePages}
               activePageId={activePageId}
@@ -899,6 +1046,8 @@ export default function App() {
               apiKeys={apiKeys}
               isOllamaOnline={isOllamaOnline}
               logSystemMessage={logSystemMessage}
+              workspace={workspace}
+              embedStatus={embedStatus}
             />
           ) : activePageId === "arena" ? (
             <CognitiveArena 
@@ -977,7 +1126,11 @@ export default function App() {
                     <input
                       type="password"
                       value={apiKeys.openai}
-                      onChange={(e) => setApiKeys({ ...apiKeys, openai: e.target.value })}
+                      onChange={(e) => {
+                        const updated = { ...apiKeys, openai: e.target.value }
+                        setApiKeys(updated)
+                        localStorage.setItem("distill_api_key_openai", e.target.value)
+                      }}
                       placeholder="sk-proj-..."
                       className="input-premium"
                     />
@@ -988,7 +1141,11 @@ export default function App() {
                     <input
                       type="password"
                       value={apiKeys.gemini}
-                      onChange={(e) => setApiKeys({ ...apiKeys, gemini: e.target.value })}
+                      onChange={(e) => {
+                        const updated = { ...apiKeys, gemini: e.target.value }
+                        setApiKeys(updated)
+                        localStorage.setItem("distill_api_key_gemini", e.target.value)
+                      }}
                       placeholder="AIzaSy..."
                       className="input-premium"
                     />
@@ -999,11 +1156,33 @@ export default function App() {
                     <input
                       type="password"
                       value={apiKeys.anthropic}
-                      onChange={(e) => setApiKeys({ ...apiKeys, anthropic: e.target.value })}
+                      onChange={(e) => {
+                        const updated = { ...apiKeys, anthropic: e.target.value }
+                        setApiKeys(updated)
+                        localStorage.setItem("distill_api_key_anthropic", e.target.value)
+                      }}
                       placeholder="sk-ant-..."
                       className="input-premium"
                     />
                   </div>
+                  {/* Groq */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Groq API Key</label>
+                    <input
+                      type="password"
+                      value={apiKeys.groq}
+                      onChange={(e) => {
+                        const updated = { ...apiKeys, groq: e.target.value }
+                        setApiKeys(updated)
+                        localStorage.setItem("distill_api_key_groq", e.target.value)
+                      }}
+                      placeholder="gsk_..."
+                      className="input-premium"
+                    />
+                  </div>
+                  <p style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: "1.5" }}>
+                    Keys are stored locally in your browser and never sent to any server.
+                  </p>
                 </div>
               </div>
 
@@ -1026,10 +1205,26 @@ export default function App() {
                 </div>
 
                 {/* Local Ollama status */}
-                <OllamaManager 
+                <OllamaManager
                   onModelsLoaded={setOllamaModels}
                   selectedModel={provider === "ollama" ? model : ""}
                   onSelectModel={setModel}
+                />
+
+                {/* WebLLM — browser-native model runner */}
+                <WebLLMManager
+                  onModelReady={(modelId) => {
+                    setProvider("webllm")
+                    setModel(modelId)
+                    logSystemMessage("SYSTEM", `WebLLM model ready: ${modelId}`)
+                  }}
+                  onModelUnloaded={() => {
+                    if (provider === "webllm") {
+                      setProvider("ollama")
+                      setModel(ollamaModels[0] || "")
+                      logSystemMessage("SYSTEM", "WebLLM unloaded — reverted to Ollama")
+                    }
+                  }}
                 />
 
                 {/* Real-time System Console Audit logs */}
@@ -1067,6 +1262,8 @@ export default function App() {
               <JournalLogger page={activePage} onUpdatePage={handleUpdatePage} />
             ) : activePage.type === "table" ? (
               <DatabaseTable page={activePage} onUpdatePage={handleUpdatePage} />
+            ) : activePage.type === "moodboard" ? (
+              <MoodBoard page={activePage} onUpdatePage={handleUpdatePage} />
             ) : (
               <DocumentEditor 
                 page={activePage} 
@@ -1087,6 +1284,20 @@ export default function App() {
         </div>
       </main>
 
+      {/* Global Semantic Search Modal */}
+      {isSearchOpen && (
+        <SearchModal
+          pages={pages}
+          workspace={workspace}
+          embedStatus={embedStatus}
+          onNavigate={(id) => {
+            setActivePageId(id)
+            logSystemMessage("SYSTEM", `Search navigation → page "${id}"`)
+          }}
+          onClose={() => setIsSearchOpen(false)}
+        />
+      )}
+
       {/* Dynamic Collapsible Notion AI Sidecar Panel */}
       <aside className={`sidecar-panel ${isSidecarOpen ? "" : "closed"}`}>
         <div style={{ display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
@@ -1106,14 +1317,14 @@ export default function App() {
 
         {/* Sidecar Tool Select Tab Bar */}
         <div style={{ display: "flex", gap: "4px", background: "rgba(0,0,0,0.3)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-muted)" }}>
-          {(["rewrite", "ladder", "decision", "reading"] as const).map((tool) => (
+          {(["rewrite", "ladder", "decision", "reading", "surgeon"] as const).map((tool) => (
             <button
               key={tool}
               onClick={() => setActiveSidecarTool(tool)}
               style={{
                 flex: 1,
-                padding: "6px 8px",
-                fontSize: "10px",
+                padding: "6px 4px",
+                fontSize: "9.5px",
                 background: activeSidecarTool === tool ? "rgba(255,255,255,0.05)" : "transparent",
                 border: "none",
                 borderRadius: "4px",
@@ -1123,7 +1334,7 @@ export default function App() {
                 transition: "var(--transition-smooth)"
               }}
             >
-              {tool.toUpperCase()}
+              {tool === "surgeon" ? "SURGEON" : tool.toUpperCase()}
             </button>
           ))}
         </div>
@@ -1141,6 +1352,15 @@ export default function App() {
           )}
           {activeSidecarTool === "reading" && (
             <ReadingCompanion provider={provider} model={model} apiKeys={apiKeys} />
+          )}
+          {activeSidecarTool === "surgeon" && (
+            <PromptSurgeon
+              provider={provider}
+              model={model}
+              apiKeys={apiKeys}
+              isOllamaOnline={isOllamaOnline}
+              logSystemMessage={logSystemMessage}
+            />
           )}
         </div>
       </aside>

@@ -1,4 +1,14 @@
 /* Premium Modern Cyber-Dark Design System (Linear/Vercel/Ryze AI inspired) */
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Moodboard card hover interactions */
+.moodboard-card:hover .card-delete-btn,
+.moodboard-card:hover .drag-handle {
+  opacity: 1 !important;
+}
 :root {
   /* Premium Obsidian Graphite Theme (Ryze AI Style) */
   --bg-primary: #070709;        /* Pure deep luxury obsidian black */

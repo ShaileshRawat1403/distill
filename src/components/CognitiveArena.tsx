@@ -1,16 +1,13 @@
-import { useState } from "react"
-import { Sparkles, Zap, FileText, CheckCircle2, Pin, BarChart2 } from "lucide-react"
+import { useState, useRef } from "react"
+import { Sparkles, Zap, FileText, CheckCircle2, Pin, BarChart2, AlertCircle, XCircle } from "lucide-react"
 import { Page } from "../App"
+import { streamPrompt, APIKeys } from "../utils/ai"
 
 interface CognitiveArenaProps {
   pages: Page[]
   provider: string
   model: string
-  apiKeys: {
-    openai: string
-    anthropic: string
-    gemini: string
-  }
+  apiKeys: APIKeys
   isOllamaOnline: boolean
   ollamaModels: string[]
   logSystemMessage: (tag: "SYSTEM" | "DATABASE" | "OLLAMA" | "ERROR", message: string) => void
@@ -19,7 +16,32 @@ interface CognitiveArenaProps {
 interface PerformanceMetric {
   latencyMs: number
   tokensPerSec: number
+  tokenCount: number
   overallScore: number
+}
+
+// Per-engine config: provider key + display model label
+interface EngineConfig {
+  provider: string
+  model: string
+}
+
+const PROVIDER_OPTIONS = [
+  { key: "ollama",    label: "Local Ollama",     modelLabel: "local model"         },
+  { key: "openai",    label: "OpenAI",            modelLabel: "gpt-4o-mini"         },
+  { key: "gemini",    label: "Gemini",            modelLabel: "gemini-2.0-flash"    },
+  { key: "groq",      label: "Groq",              modelLabel: "llama-3.3-70b-versatile" },
+  { key: "anthropic", label: "Anthropic",         modelLabel: "claude-3-5-sonnet"   },
+]
+
+function buildKnowledgeContext(pages: Page[], pinnedIds: string[]): string {
+  if (!pinnedIds.length) return ""
+  return pinnedIds.map((id) => {
+    const p = pages.find((page) => page.id === id)
+    if (!p) return null
+    const preview = p.content.substring(0, 1500) + (p.content.length > 1500 ? "\n…[truncated]" : "")
+    return `--- "${p.title}" [${p.type.toUpperCase()}] ---\n${preview}`
+  }).filter(Boolean).join("\n\n")
 }
 
 export default function CognitiveArena({
@@ -32,175 +54,236 @@ export default function CognitiveArena({
   logSystemMessage
 }: CognitiveArenaProps) {
   const [prompt, setPrompt] = useState("")
-  const [modelA, setModelA] = useState("ollama")
-  const [modelB, setModelB] = useState("openai")
-  
+
+  // Each engine now tracks provider + model separately
+  const [engineA, setEngineA] = useState<EngineConfig>({ provider: "ollama", model: ollamaModels[0] || "" })
+  const [engineB, setEngineB] = useState<EngineConfig>({ provider: "openai",  model: "gpt-4o-mini" })
+
   const [streamA, setStreamA] = useState("")
   const [streamB, setStreamB] = useState("")
+  const [errorA, setErrorA] = useState<string | null>(null)
+  const [errorB, setErrorB] = useState<string | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
-  
+
   const [metricsA, setMetricsA] = useState<PerformanceMetric | null>(null)
   const [metricsB, setMetricsB] = useState<PerformanceMetric | null>(null)
 
-  const [pinnedPages, setPinnedPages] = useState<string[]>([]) // Pinned document references
+  const [pinnedPages, setPinnedPages] = useState<string[]>([])
 
-  // Available options
-  const modelOptions = [
-    { key: "ollama", label: "Local Ollama Engine", desc: ollamaModels[0] || "Llama 3.2 (Local)" },
-    { key: "openai", label: "OpenAI Cloud Engine", desc: "GPT-4o (Cloud)" },
-    { key: "gemini", label: "Gemini Cloud Engine", desc: "Gemini 1.5 Pro" },
-    { key: "anthropic", label: "Anthropic Cloud Engine", desc: "Claude 3.5 Sonnet" }
-  ]
+  // Ref flags for tracking which streams are still live
+  const doneA = useRef(false)
+  const doneB = useRef(false)
 
-  // Toggle page reference pins
   const togglePin = (pageId: string) => {
-    setPinnedPages(prev => 
+    setPinnedPages(prev =>
       prev.includes(pageId) ? prev.filter(id => id !== pageId) : [...prev, pageId]
     )
-    logSystemMessage("SYSTEM", `Toggled arena reference pin for page ID "${pageId}"`)
+    logSystemMessage("SYSTEM", `Toggled arena context pin for page "${pageId}"`)
   }
 
-  // Initiate Arena Prompt
-  const handleInitiateArena = (e: React.FormEvent) => {
+  const handleInitiateArena = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!prompt.trim() || isStreaming) return
 
+    const textPrompt = prompt.trim()
+    const knowledgeContext = buildKnowledgeContext(pages, pinnedPages)
+
+    const systemPrompt = knowledgeContext
+      ? `You are a precise analytical engine. Answer concisely and accurately.\n\nThe user has provided the following knowledge context:\n\n${knowledgeContext}`
+      : "You are a precise analytical engine. Answer concisely and accurately."
+
+    // Reset all state
     setStreamA("")
     setStreamB("")
+    setErrorA(null)
+    setErrorB(null)
     setMetricsA(null)
     setMetricsB(null)
     setIsStreaming(true)
-    
-    logSystemMessage("SYSTEM", `Initiating Cognitive Arena parallel prompts for models A: ${modelA.toUpperCase()} and B: ${modelB.toUpperCase()}`)
+    doneA.current = false
+    doneB.current = false
 
-    const textPrompt = prompt.trim()
-
-    // Model A stream simulator
-    simulateStream(
-      modelA,
-      textPrompt,
-      (text) => setStreamA(text),
-      (latency, tokens) => {
-        setMetricsA({ latencyMs: latency, tokensPerSec: tokens, overallScore: Math.round(tokens * 0.8 + (10000 / latency)) })
-      }
+    logSystemMessage(
+      "SYSTEM",
+      `Arena: firing parallel streams — A: ${engineA.provider.toUpperCase()} / B: ${engineB.provider.toUpperCase()} — context pages: ${pinnedPages.length}`
     )
 
-    // Model B stream simulator
-    setTimeout(() => {
-      simulateStream(
-        modelB,
-        textPrompt,
-        (text) => setStreamB(text),
-        (latency, tokens) => {
-          setMetricsB({ latencyMs: latency, tokensPerSec: tokens, overallScore: Math.round(tokens * 0.85 + (12000 / latency)) })
-          setIsStreaming(false)
-          logSystemMessage("OLLAMA", "Cognitive Arena parallel streams completed successfully")
-        }
-      )
-    }, 300)
-  }
-
-  // Stream Simulator
-  const simulateStream = (
-    modelKey: string,
-    userPrompt: string,
-    onChunk: (text: string) => void,
-    onComplete: (latency: number, tokens: number) => void
-  ) => {
-    let fullOutput = ""
-    let words: string[] = []
-
-    // Customized logic responses based on model profile
-    if (modelKey === "ollama") {
-      fullOutput = `### 🦙 Local Ollama Engine Analysis\n\n- **Target Prompt**: *${userPrompt}*\n- **Cognitive Model**: Local Llama Checkpoint\n- **Security Status**: 100% Encrypted & Local\n\nBased on your workspace specifications, here is the robust engineering approach to take:\n\n1. **Component Design**: Modular architecture isolating database states.\n2. **Security Credentials**: Enforce strict client-side validation rules.\n3. **Local Deployment**: Execute local containers under standard NGINX routing loops.\n\n*Offline latency logs are cleared.*`
-    } else if (modelKey === "openai") {
-      fullOutput = `### 🟢 OpenAI GPT-4o Advanced Synthesis\n\n- **Target Prompt**: *${userPrompt}*\n- **Cognitive Model**: GPT-4o (Cloud API)\n- **Security Status**: Encrypted Transit\n\nHere is a comprehensive overview of your architectural request:\n\n- **Overview**: A highly responsive, highly robust modular platform.\n- **Implementation Metrics**:\n  - Enforce atomic transactions inside spreadsheet data sets.\n  - Leverage View Transitions API for sliding aesthetic states.\n  - Auto-generate backup hooks using direct JSON serialization blocks.\n\n*Prompt completed under strict Cloud constraints.*`
-    } else if (modelKey === "gemini") {
-      fullOutput = `### 🔵 Gemini 1.5 Pro Multimodal Summary\n\n- **Target Prompt**: *${userPrompt}*\n- **Cognitive Model**: Gemini 1.5 Pro (Cloud API)\n- **Security Status**: Google Secure Handshake\n\nAnalyzing your workspace pages context, I recommend the following upgrades:\n\n1. **Utility Blocks**: Add visual radar indicators to monitor completion rates.\n2. **RAG Vectoring**: Set up Transformers.js embedding structures to query knowledge bases.\n3. **Themes Customization**: Clean up colorful emojis to elevate the visual feel to Alabaster White.\n\n*Context feed successfully parsed.*`
-    } else {
-      fullOutput = `### 🟠 Claude 3.5 Sonnet Precision Outline\n\n- **Target Prompt**: *${userPrompt}*\n- **Cognitive Model**: Claude 3.5 Sonnet (Cloud API)\n- **Security Status**: Anthropic Vault Shield\n\nHere is a highly detailed, precise layout of your request:\n\n- **Core Objectives**: Maximize cognitive utility and visual elegance.\n- **Technical Checklist**:\n  - Create Custom Workspace Switchers with chevron menus.\n  - Deploy standard checklists inside Kanban column lanes.\n  - Render interactive inline SVG charts representing spreadsheet cells.\n\n*Output structured under strict Markdown specifications.*`
+    const checkBothDone = () => {
+      if (doneA.current && doneB.current) {
+        setIsStreaming(false)
+        logSystemMessage("SYSTEM", "Arena: both streams completed")
+      }
     }
 
-    words = fullOutput.split(" ")
-    let wordIdx = 0
-    const start = performance.now()
+    // ── Engine A ──────────────────────────────────────────────────────────────
+    const startA = performance.now()
+    let tokenCountA = 0
 
-    const interval = setInterval(() => {
-      if (wordIdx < words.length) {
-        onChunk(words.slice(0, wordIdx + 1).join(" "))
-        wordIdx++
-      } else {
-        clearInterval(interval)
-        const latency = performance.now() - start
-        const tokens = Math.round((words.length / latency) * 1000 * 1.5)
-        onComplete(Math.round(latency), tokens)
-      }
-    }, 40)
+    streamPrompt({
+      provider: engineA.provider,
+      model: engineA.model,
+      prompt: textPrompt,
+      systemPrompt,
+      apiKeys,
+      onChunk: (delta, fullText) => {
+        setStreamA(fullText)
+        tokenCountA += delta.split(/\s+/).filter(Boolean).length
+      },
+      onComplete: (fullText) => {
+        const latency = Math.round(performance.now() - startA)
+        const tokensPerSec = latency > 0 ? Math.round((tokenCountA / latency) * 1000) : 0
+        setMetricsA({
+          latencyMs: latency,
+          tokensPerSec,
+          tokenCount: tokenCountA,
+          overallScore: Math.round(tokensPerSec * 0.8 + (10000 / Math.max(latency, 1))),
+        })
+        logSystemMessage("OLLAMA", `Arena A (${engineA.provider}): ${fullText.length} chars in ${latency}ms`)
+        doneA.current = true
+        checkBothDone()
+      },
+      onError: (msg) => {
+        setErrorA(msg)
+        logSystemMessage("ERROR", `Arena A (${engineA.provider}) error: ${msg}`)
+        doneA.current = true
+        checkBothDone()
+      },
+    })
+
+    // ── Engine B ──────────────────────────────────────────────────────────────
+    const startB = performance.now()
+    let tokenCountB = 0
+
+    streamPrompt({
+      provider: engineB.provider,
+      model: engineB.model,
+      prompt: textPrompt,
+      systemPrompt,
+      apiKeys,
+      onChunk: (delta, fullText) => {
+        setStreamB(fullText)
+        tokenCountB += delta.split(/\s+/).filter(Boolean).length
+      },
+      onComplete: (fullText) => {
+        const latency = Math.round(performance.now() - startB)
+        const tokensPerSec = latency > 0 ? Math.round((tokenCountB / latency) * 1000) : 0
+        setMetricsB({
+          latencyMs: latency,
+          tokensPerSec,
+          tokenCount: tokenCountB,
+          overallScore: Math.round(tokensPerSec * 0.85 + (12000 / Math.max(latency, 1))),
+        })
+        logSystemMessage("OLLAMA", `Arena B (${engineB.provider}): ${fullText.length} chars in ${latency}ms`)
+        doneB.current = true
+        checkBothDone()
+      },
+      onError: (msg) => {
+        setErrorB(msg)
+        logSystemMessage("ERROR", `Arena B (${engineB.provider}) error: ${msg}`)
+        doneB.current = true
+        checkBothDone()
+      },
+    })
   }
 
-  // Active faster model check
   const fasterModel = (() => {
     if (!metricsA || !metricsB) return null
-    return metricsA.latencyMs < metricsB.latencyMs ? "A" : "B"
+    return metricsA.latencyMs <= metricsB.latencyMs ? "A" : "B"
   })()
+
+  const EngineSelector = ({
+    label,
+    value,
+    onChange,
+    disabled,
+  }: {
+    label: string
+    value: EngineConfig
+    onChange: (cfg: EngineConfig) => void
+    disabled: boolean
+  }) => {
+    const selected = PROVIDER_OPTIONS.find(o => o.key === value.provider)
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+        <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600", fontFamily: "var(--font-mono)" }}>
+          {label}:
+        </span>
+        <select
+          value={value.provider}
+          onChange={(e) => {
+            const opt = PROVIDER_OPTIONS.find(o => o.key === e.target.value)!
+            onChange({ provider: opt.key, model: opt.key === "ollama" ? (ollamaModels[0] || "") : opt.modelLabel })
+          }}
+          className="input-premium"
+          disabled={disabled}
+          style={{ width: "140px", padding: "6px 10px", fontSize: "11.5px" }}
+        >
+          {PROVIDER_OPTIONS.map(opt => (
+            <option key={opt.key} value={opt.key}>{opt.label}</option>
+          ))}
+        </select>
+
+        {/* Ollama sub-model picker */}
+        {value.provider === "ollama" && ollamaModels.length > 1 && (
+          <select
+            value={value.model}
+            onChange={(e) => onChange({ ...value, model: e.target.value })}
+            className="input-premium"
+            disabled={disabled}
+            style={{ width: "130px", padding: "6px 10px", fontSize: "11px" }}
+          >
+            {ollamaModels.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
+        )}
+
+        {value.provider !== "ollama" && (
+          <span style={{ fontSize: "10.5px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+            {selected?.modelLabel}
+          </span>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "24px", height: "calc(100vh - 120px)", overflow: "hidden" }}>
-      
-      {/* LEFT COLUMN: Main Arena Arena */}
+
+      {/* LEFT COLUMN */}
       <div style={{ display: "flex", flexDirection: "column", gap: "20px", height: "100%", overflow: "hidden" }}>
-        
+
         {/* Cockpit Prompt Input */}
         <div className="glass-card" style={{ padding: "20px" }}>
           <form onSubmit={handleInitiateArena} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <Zap size={18} style={{ color: "var(--accent-warning)" }} />
               <h3 style={{ fontSize: "15px", fontWeight: "700", fontFamily: "var(--font-display)" }}>
-                AI Cognitive Arena Cockpit
+                AI Cognitive Arena
               </h3>
+              {pinnedPages.length > 0 && (
+                <span style={{
+                  fontSize: "10px", fontFamily: "var(--font-mono)", fontWeight: "600",
+                  color: "var(--accent-secondary)",
+                  background: "rgba(99, 102, 241, 0.1)",
+                  padding: "2px 8px", borderRadius: "10px",
+                  border: "1px solid rgba(99, 102, 241, 0.25)"
+                }}>
+                  {pinnedPages.length} context page{pinnedPages.length !== 1 ? "s" : ""} pinned
+                </span>
+              )}
             </div>
-            
+
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Enter a prompt to prompt both A and B engines in parallel..."
+              placeholder="Enter a prompt to fire both engines in parallel and compare live responses..."
               className="input-premium"
               disabled={isStreaming}
               style={{ height: "70px", resize: "none", fontSize: "13px" }}
             />
 
             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
-              {/* Select Engine A */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600", fontFamily: "var(--font-mono)" }}>ENGINE A:</span>
-                <select
-                  value={modelA}
-                  onChange={(e) => setModelA(e.target.value)}
-                  className="input-premium"
-                  disabled={isStreaming}
-                  style={{ width: "160px", padding: "6px 10px", fontSize: "11.5px" }}
-                >
-                  {modelOptions.map(opt => (
-                    <option key={opt.key} value={opt.key}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Select Engine B */}
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600", fontFamily: "var(--font-mono)" }}>ENGINE B:</span>
-                <select
-                  value={modelB}
-                  onChange={(e) => setModelB(e.target.value)}
-                  className="input-premium"
-                  disabled={isStreaming}
-                  style={{ width: "160px", padding: "6px 10px", fontSize: "11.5px" }}
-                >
-                  {modelOptions.map(opt => (
-                    <option key={opt.key} value={opt.key}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
+              <EngineSelector label="ENGINE A" value={engineA} onChange={setEngineA} disabled={isStreaming} />
+              <EngineSelector label="ENGINE B" value={engineB} onChange={setEngineB} disabled={isStreaming} />
 
               <button
                 type="submit"
@@ -209,137 +292,151 @@ export default function CognitiveArena({
                 style={{ padding: "8px 16px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
               >
                 <Sparkles size={13} />
-                <span>Initiate Arena Prompt</span>
+                <span>{isStreaming ? "Streaming…" : "Initiate Arena"}</span>
               </button>
             </div>
           </form>
         </div>
 
-        {/* Side-by-Side Viewport Columns */}
+        {/* Side-by-Side Viewports */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", flex: 1, overflow: "hidden" }}>
-          
-          {/* VIEWPORT COLUMN A */}
+
+          {/* VIEWPORT A */}
           <div className="glass-card" style={{ display: "flex", flexDirection: "column", height: "100%", padding: "20px", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "10px", marginBottom: "14px" }}>
               <span style={{ fontSize: "12px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--font-display)" }}>
-                COLUMN A: {modelA.toUpperCase()}
+                A: {engineA.provider.toUpperCase()}
               </span>
               {metricsA && (
                 <div style={{ display: "flex", gap: "8px", fontSize: "10px", fontFamily: "var(--font-mono)", fontWeight: "700" }}>
                   <span style={{ color: "var(--accent-secondary)" }}>{metricsA.latencyMs}ms</span>
                   <span style={{ color: "var(--accent-success)" }}>{metricsA.tokensPerSec} t/s</span>
-                  {fasterModel === "A" && <span style={{ color: "var(--accent-warning)", background: "rgba(245, 158, 11, 0.08)", padding: "1px 6px", borderRadius: "8px" }}>FASTER</span>}
+                  {fasterModel === "A" && (
+                    <span style={{ color: "var(--accent-warning)", background: "rgba(245, 158, 11, 0.08)", padding: "1px 6px", borderRadius: "8px" }}>
+                      FASTER
+                    </span>
+                  )}
                 </div>
               )}
             </div>
-            
-            <div style={{ flex: 1, overflowY: "auto", fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
-              {streamA || (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)" }}>
-                  Awaiting column A execution...
+
+            <div style={{ flex: 1, overflowY: "auto", fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>
+              {errorA ? (
+                <div style={{ display: "flex", gap: "8px", color: "var(--accent-danger)", fontSize: "12px", padding: "10px", background: "rgba(239,68,68,0.06)", borderRadius: "6px", border: "1px solid rgba(239,68,68,0.2)" }}>
+                  <XCircle size={14} style={{ flexShrink: 0, marginTop: "1px" }} />
+                  <span>{errorA}</span>
+                </div>
+              ) : streamA ? (
+                streamA
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", fontSize: "12px" }}>
+                  {isStreaming
+                    ? <span style={{ display: "flex", alignItems: "center", gap: "6px" }}><Sparkles size={12} />Streaming from {engineA.provider}…</span>
+                    : "Awaiting engine A…"
+                  }
                 </div>
               )}
             </div>
           </div>
 
-          {/* VIEWPORT COLUMN B */}
+          {/* VIEWPORT B */}
           <div className="glass-card" style={{ display: "flex", flexDirection: "column", height: "100%", padding: "20px", overflow: "hidden" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "10px", marginBottom: "14px" }}>
               <span style={{ fontSize: "12px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--font-display)" }}>
-                COLUMN B: {modelB.toUpperCase()}
+                B: {engineB.provider.toUpperCase()}
               </span>
               {metricsB && (
                 <div style={{ display: "flex", gap: "8px", fontSize: "10px", fontFamily: "var(--font-mono)", fontWeight: "700" }}>
                   <span style={{ color: "var(--accent-secondary)" }}>{metricsB.latencyMs}ms</span>
                   <span style={{ color: "var(--accent-success)" }}>{metricsB.tokensPerSec} t/s</span>
-                  {fasterModel === "B" && <span style={{ color: "var(--accent-warning)", background: "rgba(245, 158, 11, 0.08)", padding: "1px 6px", borderRadius: "8px" }}>FASTER</span>}
+                  {fasterModel === "B" && (
+                    <span style={{ color: "var(--accent-warning)", background: "rgba(245, 158, 11, 0.08)", padding: "1px 6px", borderRadius: "8px" }}>
+                      FASTER
+                    </span>
+                  )}
                 </div>
               )}
             </div>
-            
-            <div style={{ flex: 1, overflowY: "auto", fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
-              {streamB || (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)" }}>
-                  Awaiting column B execution...
+
+            <div style={{ flex: 1, overflowY: "auto", fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>
+              {errorB ? (
+                <div style={{ display: "flex", gap: "8px", color: "var(--accent-danger)", fontSize: "12px", padding: "10px", background: "rgba(239,68,68,0.06)", borderRadius: "6px", border: "1px solid rgba(239,68,68,0.2)" }}>
+                  <XCircle size={14} style={{ flexShrink: 0, marginTop: "1px" }} />
+                  <span>{errorB}</span>
+                </div>
+              ) : streamB ? (
+                streamB
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", fontSize: "12px" }}>
+                  {isStreaming
+                    ? <span style={{ display: "flex", alignItems: "center", gap: "6px" }}><Sparkles size={12} />Streaming from {engineB.provider}…</span>
+                    : "Awaiting engine B…"
+                  }
                 </div>
               )}
             </div>
           </div>
 
         </div>
-
       </div>
 
-      {/* RIGHT COLUMN: Pinned References panel */}
+      {/* RIGHT COLUMN */}
       <div className="glass-card" style={{ display: "flex", flexDirection: "column", height: "100%", padding: "20px", gap: "16px" }}>
-        
-        {/* Connection Status HUD */}
+
+        {/* Connection HUD */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ 
-              display: "inline-block", 
-              width: "8px", 
-              height: "8px", 
-              borderRadius: "50%", 
+            <span style={{
+              display: "inline-block", width: "8px", height: "8px", borderRadius: "50%",
               background: isOllamaOnline ? "var(--accent-success)" : "var(--accent-danger)",
               boxShadow: isOllamaOnline ? "0 0 8px var(--accent-success)" : "0 0 8px var(--accent-danger)"
             }}></span>
             <h3 style={{ fontSize: "13px", fontWeight: "700", fontFamily: "var(--font-display)" }}>
-              Engine Connection HUD
+              Engine Status
             </h3>
           </div>
-          
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "11px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Ollama (Local)</span>
-              <span style={{ color: isOllamaOnline ? "var(--accent-success)" : "var(--text-muted)", fontWeight: "bold" }}>
-                {isOllamaOnline ? "ONLINE" : "OFFLINE"}
-              </span>
-            </div>
-            
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>OpenAI API</span>
-              <span style={{ color: apiKeys.openai ? "var(--accent-success)" : "var(--accent-warning)", fontWeight: "bold" }}>
-                {apiKeys.openai ? "CONFIGURED" : "MISSING KEY"}
-              </span>
-            </div>
-            
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Gemini API</span>
-              <span style={{ color: apiKeys.gemini ? "var(--accent-success)" : "var(--accent-warning)", fontWeight: "bold" }}>
-                {apiKeys.gemini ? "CONFIGURED" : "MISSING KEY"}
-              </span>
-            </div>
 
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Anthropic API</span>
-              <span style={{ color: apiKeys.anthropic ? "var(--accent-success)" : "var(--accent-warning)", fontWeight: "bold" }}>
-                {apiKeys.anthropic ? "CONFIGURED" : "MISSING KEY"}
-              </span>
-            </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "11px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+            {[
+              { label: "Ollama (Local)", ready: isOllamaOnline },
+              { label: "OpenAI",         ready: !!apiKeys.openai },
+              { label: "Gemini",          ready: !!apiKeys.gemini },
+              { label: "Groq",            ready: !!apiKeys.groq },
+              { label: "Anthropic",       ready: !!apiKeys.anthropic },
+            ].map(({ label, ready }) => (
+              <div key={label} style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>{label}</span>
+                <span style={{ color: ready ? "var(--accent-success)" : "var(--accent-warning)", fontWeight: "bold" }}>
+                  {ready ? "READY" : "NO KEY"}
+                </span>
+              </div>
+            ))}
 
             <div style={{ borderTop: "1px dashed var(--border-muted)", marginTop: "4px", paddingTop: "4px", fontSize: "10px", color: "var(--text-muted)" }}>
-              <span>Active Route: </span>
-              <div style={{ color: "var(--text-secondary)", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {provider.toUpperCase()} / {model || "None"}
-              </div>
+              <span>Workspace route: </span>
+              <span style={{ color: "var(--text-secondary)" }}>{provider.toUpperCase()} / {model || "—"}</span>
             </div>
           </div>
         </div>
 
+        {/* Context Pins */}
         <div style={{ display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "10px" }}>
           <Pin size={14} style={{ color: "var(--accent-secondary)" }} />
           <h3 style={{ fontSize: "13px", fontWeight: "700", fontFamily: "var(--font-display)" }}>
-            Arena Context Pinned
+            Context Pins
           </h3>
         </div>
-        
+
         <p style={{ fontSize: "11.5px", color: "var(--text-muted)", lineHeight: "1.5" }}>
-          Pin document pages to feed them into the benchmark prompt context inputs:
+          Pinned pages are injected into both engine prompts as shared context:
         </p>
 
-        {/* List Pinned Page Checkboxes */}
         <div style={{ display: "flex", flexDirection: "column", gap: "6px", overflowY: "auto", flex: 1 }}>
+          {pages.length === 0 && (
+            <span style={{ fontSize: "11px", color: "var(--text-muted)", fontStyle: "italic" }}>
+              No pages in workspace yet.
+            </span>
+          )}
           {pages.map((p) => {
             const isPinned = pinnedPages.includes(p.id)
             return (
@@ -347,14 +444,7 @@ export default function CognitiveArena({
                 key={p.id}
                 onClick={() => togglePin(p.id)}
                 className={`sidebar-page-item ${isPinned ? "active" : ""}`}
-                style={{
-                  width: "100%",
-                  padding: "8px 10px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  fontSize: "12.5px"
-                }}
+                style={{ width: "100%", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "12.5px" }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "85%" }}>
                   <FileText size={12} style={{ flexShrink: 0, opacity: 0.8 }} />
@@ -368,36 +458,50 @@ export default function CognitiveArena({
           })}
         </div>
 
-        {/* SVG Performance HUD Radar */}
+        {/* Performance Radar */}
         {metricsA && metricsB && (
           <div style={{ borderTop: "1px solid var(--border-muted)", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <BarChart2 size={14} style={{ color: "var(--accent-success)" }} />
               <span style={{ fontSize: "12px", fontWeight: "700" }}>Performance Radar</span>
             </div>
-            
-            {/* Visual Radars metric bar */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "11px", background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px" }}>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2px" }}>
-                  <span>Engine A Score</span>
-                  <span style={{ fontWeight: "700" }}>{metricsA.overallScore}</span>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", fontSize: "11px", background: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "6px" }}>
+              {[
+                { label: `A · ${engineA.provider}`, metrics: metricsA, color: "var(--accent-secondary)" },
+                { label: `B · ${engineB.provider}`, metrics: metricsB, color: "var(--accent-success)" },
+              ].map(({ label, metrics, color }) => (
+                <div key={label}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span style={{ color: "var(--text-muted)" }}>{label}</span>
+                    <span style={{ fontWeight: "700" }}>
+                      {metrics.latencyMs}ms · {metrics.tokensPerSec} t/s
+                    </span>
+                  </div>
+                  <div style={{ height: "4px", background: "rgba(255,255,255,0.05)", borderRadius: "2px", overflow: "hidden" }}>
+                    <div style={{ width: `${Math.min(100, metrics.overallScore / 2)}%`, height: "100%", background: color }}></div>
+                  </div>
+                  <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "3px", textAlign: "right" }}>
+                    score {metrics.overallScore}
+                  </div>
                 </div>
-                <div style={{ height: "4px", background: "rgba(255,255,255,0.05)", borderRadius: "2px", overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(100, metricsA.overallScore / 2)}%`, height: "100%", background: "var(--accent-secondary)" }}></div>
-                </div>
-              </div>
-              
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2px" }}>
-                  <span>Engine B Score</span>
-                  <span style={{ fontWeight: "700" }}>{metricsB.overallScore}</span>
-                </div>
-                <div style={{ height: "4px", background: "rgba(255,255,255,0.05)", borderRadius: "2px", overflow: "hidden" }}>
-                  <div style={{ width: `${Math.min(100, metricsB.overallScore / 2)}%`, height: "100%", background: "var(--accent-success)" }}></div>
-                </div>
+              ))}
+
+              <div style={{ borderTop: "1px dashed var(--border-muted)", paddingTop: "8px", fontSize: "10px", color: "var(--text-muted)", textAlign: "center" }}>
+                {fasterModel === "A"
+                  ? `Engine A (${engineA.provider}) responded faster by ${metricsB.latencyMs - metricsA.latencyMs}ms`
+                  : `Engine B (${engineB.provider}) responded faster by ${metricsA.latencyMs - metricsB.latencyMs}ms`
+                }
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Warn if both engines are the same provider */}
+        {engineA.provider === engineB.provider && (
+          <div style={{ display: "flex", gap: "6px", fontSize: "11px", color: "var(--accent-warning)", padding: "8px", background: "rgba(245,158,11,0.06)", borderRadius: "6px", border: "1px solid rgba(245,158,11,0.2)" }}>
+            <AlertCircle size={13} style={{ flexShrink: 0, marginTop: "1px" }} />
+            <span>Both engines use the same provider. Select different providers to compare meaningfully.</span>
           </div>
         )}
       </div>
