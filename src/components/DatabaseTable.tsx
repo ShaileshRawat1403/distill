@@ -74,7 +74,7 @@ export default function DatabaseTable({ page, onUpdatePage }: DatabaseTableProps
             placeholder="Untitled Spreadsheet Database"
           />
           <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
-            NOTION-STYLE SPREADSHEET DATABASE TABLE
+            DISTILL-STYLE SPREADSHEET DATABASE TABLE
           </span>
         </div>
 

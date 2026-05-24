@@ -52,7 +52,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
     URL.revokeObjectURL(url)
   }
 
-  // Floating Slash Command options inspired by Notion block types
+  // Floating Slash Command options inspired by Distill block types
   const slashOptions: SlashOption[] = [
     { key: "h1", label: "Heading 1", desc: "Large workspace header", icon: <Heading1 size={14} />, template: "# " },
     { key: "h2", label: "Heading 2", desc: "Medium section header", icon: <Heading2 size={14} />, template: "## " },
@@ -60,7 +60,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
     { key: "code", label: "Code Block", desc: "Monospace syntax block", icon: <Code size={14} />, template: "\n```javascript\n\n```\n" },
     { key: "chart", label: "Interactive Database Chart", desc: "Embed dynamic visual database chart block", icon: <BarChart2 size={14} style={{ color: "var(--accent-success)" }} />, template: "\n[chart]\n" },
     { key: "time", label: "Current Time", desc: "Insert local timestamp", icon: <Calendar size={14} />, template: new Date().toLocaleString() },
-    { key: "ai", label: "Ask Notion AI", desc: "Slide open AI Dialogue sidecar", icon: <Sparkles size={14} style={{ color: "var(--accent-primary)" }} />, template: "" }
+    { key: "ai", label: "Ask Distill AI", desc: "Slide open AI Dialogue sidecar", icon: <Sparkles size={14} style={{ color: "var(--accent-primary)" }} />, template: "" }
   ]
 
   // Track text changes to trigger `/` popup
@@ -401,7 +401,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             style={{ padding: "8px 14px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <Sparkles size={12} />
-            <span>Notion AI Refine</span>
+            <span>Distill AI Refine</span>
           </button>
         </div>
       </div>
@@ -416,7 +416,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
               value={page.content}
               onChange={handleTextChange}
               onKeyDown={handleKeyDown}
-              placeholder="Start drafting here... Type '/' to summon the Notion block dropdown."
+              placeholder="Start drafting here... Type '/' to summon the Distill block dropdown."
               className="input-premium"
               style={{
                 width: "100%",
@@ -444,7 +444,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
                 }}
               >
                 <div style={{ fontSize: "9px", color: "var(--text-muted)", padding: "4px 8px", fontWeight: "700", borderBottom: "1px solid var(--border-muted)", marginBottom: "4px" }}>
-                  INSERT NOTION BLOCKS
+                  INSERT DISTILL BLOCKS
                 </div>
                 {filteredOptions.map((opt, i) => (
                   <button

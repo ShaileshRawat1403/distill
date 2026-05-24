@@ -216,14 +216,14 @@ export default function App() {
 
   // Seeding Page Tree Database
   const seedPages = useCallback((context: WorkspaceContext): Page[] => {
-    logSystemMessage("DATABASE", `Seeding default Notion-style templates for context "${context.toUpperCase()}"`)
+    logSystemMessage("DATABASE", `Seeding default Distill-style templates for context "${context.toUpperCase()}"`)
     
     if (context === "enterprise") {
       return [
         {
           id: "e1",
           title: "🚀 Enterprise System Specifications",
-          content: `# Product Technical Specifications\n\nWelcome to your enterprise workspace note deck.\n\n### Slash block menu\nType \`/\` to summon the Notion block dropdown.\n\n### Ask AI dialogue sidecar\nSlide the sidecar open from the top-right to process this text in Rewrite Room, Concept Ladder, or Decision matrices instantly.`,
+          content: `# Product Technical Specifications\n\nWelcome to your enterprise workspace note deck.\n\n### Slash block menu\nType \`/\` to summon the Distill block dropdown.\n\n### Ask AI dialogue sidecar\nSlide the sidecar open from the top-right to process this text in Rewrite Room, Concept Ladder, or Decision matrices instantly.`,
           type: "document",
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -1278,7 +1278,7 @@ export default function App() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "360px", color: "var(--text-muted)", gap: "10px" }}>
               <Brain size={28} />
-              <span>Select or create a Notion document to begin your workflow.</span>
+              <span>Select or create a Distill document to begin your workflow.</span>
             </div>
           )}
         </div>
@@ -1298,13 +1298,13 @@ export default function App() {
         />
       )}
 
-      {/* Dynamic Collapsible Notion AI Sidecar Panel */}
+      {/* Dynamic Collapsible Distill AI Sidecar Panel */}
       <aside className={`sidecar-panel ${isSidecarOpen ? "" : "closed"}`}>
         <div style={{ display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Sparkles size={16} style={{ color: "var(--accent-primary)" }} />
             <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
-              NOTION AI DIALOGUE SIDECAR
+              DISTILL AI DIALOGUE SIDECAR
             </span>
           </div>
           <button 

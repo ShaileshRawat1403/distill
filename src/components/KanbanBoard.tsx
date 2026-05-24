@@ -99,7 +99,7 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
             placeholder="Untitled Sprint Board"
           />
           <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
-            NOTION KANBAN PLANNER BOARD DATABASE
+            DISTILL KANBAN PLANNER BOARD DATABASE
           </span>
         </div>
 
