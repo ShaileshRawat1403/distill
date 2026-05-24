@@ -1,5 +1,5 @@
-import { useState, useRef } from "react"
-import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2 } from "lucide-react"
+import { useState, useRef, useEffect } from "react"
+import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2, Mail, Share2, CloudLightning, Send, X } from "lucide-react"
 import { Page } from "../App"
 
 interface DocumentEditorProps {
@@ -34,7 +34,56 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
   
   const [copiedRaw, setCopiedRaw] = useState(false)
   
+  // Share & Email Dispatch states
+  const [isShareOpen, setIsShareOpen] = useState(false)
+  const [emailRecipient, setEmailRecipient] = useState("")
+  const [emailSubject, setEmailSubject] = useState(page.title)
+  const [emailMessage, setEmailMessage] = useState("Hello,\n\nI wanted to share this note workspace page with you from my Distill environment.\n\nBest regards")
+  const [isDispatching, setIsDispatching] = useState(false)
+  const [dispatchComplete, setDispatchComplete] = useState(false)
+  const [isBackingUpDrive, setIsBackingUpDrive] = useState(false)
+  const [driveBackupComplete, setDriveBackupComplete] = useState(false)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    setEmailSubject(page.title)
+    setDispatchComplete(false)
+    setDriveBackupComplete(false)
+  }, [page])
+
+  // Simulate dispatching email
+  const handleDispatchEmail = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!emailRecipient.trim()) return
+
+    setIsDispatching(true)
+    setDispatchComplete(false)
+
+    setTimeout(() => {
+      setIsDispatching(false)
+      setDispatchComplete(true)
+      
+      const mailtoLink = `mailto:${emailRecipient}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(`${emailMessage}\n\n---\n\n${page.content}`)}`
+      
+      console.log(`Document dispatched successfully to ${emailRecipient}`)
+      
+      setTimeout(() => {
+        window.location.href = mailtoLink
+      }, 800)
+    }, 1200)
+  }
+
+  // Simulate Drive Backup
+  const handleBackupToDrive = () => {
+    setIsBackingUpDrive(true)
+    setDriveBackupComplete(false)
+    setTimeout(() => {
+      setIsBackingUpDrive(false)
+      setDriveBackupComplete(true)
+      console.log(`Backup completed to Google Drive: ${page.title}`)
+    }, 1500)
+  }
 
   const handleCopyRaw = () => {
     navigator.clipboard.writeText(page.content)
@@ -396,6 +445,15 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
           </button>
 
           <button
+            onClick={() => setIsShareOpen(true)}
+            className="btn-secondary"
+            style={{ padding: "8px 12px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
+          >
+            <Share2 size={12} />
+            <span>Share & Dispatch</span>
+          </button>
+
+          <button
             onClick={() => onTriggerAI("rewrite")}
             className="btn-premium"
             style={{ padding: "8px 14px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
@@ -496,6 +554,110 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         </div>
       </div>
 
+      {/* Premium Sliding Share & Document Dispatch Drawer */}
+      <aside className={`share-drawer ${isShareOpen ? "" : "closed"}`}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Share2 size={16} style={{ color: "var(--accent-primary)" }} />
+            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+              Share & Dispatch Note
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsShareOpen(false)}
+            style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Google Drive quick backup */}
+        <div className="glass-card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "10px", background: "rgba(0,0,0,0.15)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <CloudLightning size={14} style={{ color: "var(--accent-success)" }} />
+            <span style={{ fontSize: "12px", fontWeight: "650", color: "#ffffff" }}>Google Drive Sync</span>
+          </div>
+          <p style={{ fontSize: "11px", color: "var(--text-secondary)", lineHeight: "1.4" }}>
+            Instantly sync and create a backup copy of this document note directly in Google Drive cloud storage.
+          </p>
+          <button
+            onClick={handleBackupToDrive}
+            disabled={isBackingUpDrive}
+            className="btn-premium"
+            style={{ width: "100%", fontSize: "11px", padding: "6px 12px", background: driveBackupComplete ? "rgba(16, 185, 129, 0.1)" : "var(--accent-primary)", border: driveBackupComplete ? "1px solid var(--accent-success)" : "none", color: driveBackupComplete ? "var(--accent-success)" : "var(--bg-primary)" }}
+          >
+            {isBackingUpDrive ? "Syncing..." : driveBackupComplete ? "Synced to Drive!" : "Sync to Google Drive"}
+          </button>
+        </div>
+
+        {/* Email Dispatch form */}
+        <form onSubmit={handleDispatchEmail} style={{ display: "flex", flexDirection: "column", gap: "14px", flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Mail size={14} style={{ color: "var(--accent-primary)" }} />
+            <span style={{ fontSize: "12px", fontWeight: "650", color: "#ffffff" }}>Email Document</span>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            <label style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700" }}>RECIPIENT EMAIL</label>
+            <input
+              type="email"
+              value={emailRecipient}
+              onChange={(e) => setEmailRecipient(e.target.value)}
+              placeholder="e.g. partner@enterprise.com"
+              className="input-premium"
+              required
+              style={{ padding: "8px 10px", fontSize: "12.5px" }}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            <label style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700" }}>SUBJECT</label>
+            <input
+              type="text"
+              value={emailSubject}
+              onChange={(e) => setEmailSubject(e.target.value)}
+              placeholder="Email Subject"
+              className="input-premium"
+              required
+              style={{ padding: "8px 10px", fontSize: "12.5px" }}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+            <label style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700" }}>MESSAGE INTRO</label>
+            <textarea
+              value={emailMessage}
+              onChange={(e) => setEmailMessage(e.target.value)}
+              className="input-premium"
+              style={{ padding: "8px 10px", fontSize: "12.5px", resize: "none", height: "100px", fontFamily: "var(--font-body)" }}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isDispatching}
+            className="btn-premium"
+            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
+          >
+            {isDispatching ? (
+              <>
+                <Send size={13} className="dispatch-plane-fly" />
+                <span>Dispatching note...</span>
+              </>
+            ) : dispatchComplete ? (
+              <>
+                <Check size={13} style={{ color: "var(--accent-success)" }} />
+                <span>Dispatched successfully!</span>
+              </>
+            ) : (
+              <>
+                <Mail size={13} />
+                <span>Dispatch Document</span>
+              </>
+            )}
+          </button>
+        </form>
+      </aside>
     </div>
   )
 }

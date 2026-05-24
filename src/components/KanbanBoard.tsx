@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Plus, Trash2, ChevronLeft, ChevronRight, AlertCircle } from "lucide-react"
+import { Plus, Trash2, ChevronLeft, ChevronRight, AlertCircle, Calendar, X, Check, Edit3 } from "lucide-react"
 import { Page, KanbanTask } from "../App"
 
 interface KanbanBoardProps {
@@ -11,6 +11,13 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
   const [newTaskTitle, setNewTaskTitle] = useState("")
   const [newTaskPriority, setNewTaskPriority] = useState<"low" | "medium" | "high">("medium")
   const [showAddForm, setShowAddForm] = useState(false)
+
+  // Kanban details modal states
+  const [selectedTask, setSelectedTask] = useState<KanbanTask | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [taskDescription, setTaskDescription] = useState("")
+  const [taskDueDate, setTaskDueDate] = useState("")
+  const [editedTaskTitle, setEditedTaskTitle] = useState("")
 
   const tasks = page.tasks || []
 
@@ -56,6 +63,53 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
 
     onUpdatePage({ ...page, tasks: updatedTasks })
   }
+
+  // Open inspection modal
+  const handleOpenTaskModal = (task: KanbanTask) => {
+    setSelectedTask(task)
+    setEditedTaskTitle(task.title)
+    setTaskDescription(task.description || "")
+    if (task.dueDate) {
+      setTaskDueDate(new Date(task.dueDate).toISOString().substring(0, 10))
+    } else {
+      setTaskDueDate("")
+    }
+    setIsModalOpen(true)
+  }
+
+  // Save inspection changes
+  const handleSaveTaskDetails = () => {
+    if (!selectedTask) return
+    const updatedTasks = tasks.map(t => {
+      if (t.id === selectedTask.id) {
+        return {
+          ...t,
+          title: editedTaskTitle.trim() || t.title,
+          description: taskDescription.trim() || undefined,
+          priority: selectedTask.priority,
+          dueDate: taskDueDate ? new Date(taskDueDate).getTime() : undefined
+        }
+      }
+      return t
+    })
+    onUpdatePage({ ...page, tasks: updatedTasks })
+    setIsModalOpen(false)
+    setSelectedTask(null)
+  }
+
+  // Visual due date badge rendering
+  const renderCardDueDate = (task: KanbanTask) => {
+    if (!task.dueDate) return null
+    const isOverdue = task.dueDate < Date.now() && task.status !== "done"
+    const dateStr = new Date(task.dueDate).toLocaleDateString()
+    return (
+      <div className={`kanban-date-badge ${isOverdue ? "overdue" : ""}`}>
+        <Calendar size={10} />
+        <span>{dateStr}</span>
+      </div>
+    )
+  }
+
 
   // Cyclic priority toggling: clicking tag cycles priority
   const handleCyclePriority = (taskId: string) => {
@@ -164,8 +218,17 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
             {todoTasks.map(task => (
               <div key={task.id} className="kanban-card">
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                  <span style={{ fontSize: "13px", color: "#ffffff", fontWeight: "500", lineHeight: "1.4" }}>{task.title}</span>
-                  <button onClick={() => handleDeleteTask(task.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", transition: "var(--transition-smooth)" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
+                    <span 
+                      onClick={() => handleOpenTaskModal(task)}
+                      style={{ fontSize: "13px", color: "#ffffff", fontWeight: "500", lineHeight: "1.4", cursor: "pointer" }}
+                      className="card-title-hover"
+                    >
+                      {task.title}
+                    </span>
+                    {renderCardDueDate(task)}
+                  </div>
+                  <button onClick={() => handleDeleteTask(task.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", transition: "var(--transition-smooth)", flexShrink: 0 }}>
                     <Trash2 size={12} className="trash-hover" />
                   </button>
                 </div>
@@ -215,8 +278,17 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
             {progressTasks.map(task => (
               <div key={task.id} className="kanban-card" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                  <span style={{ fontSize: "13px", color: "#ffffff", fontWeight: "500", lineHeight: "1.4" }}>{task.title}</span>
-                  <button onClick={() => handleDeleteTask(task.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
+                    <span 
+                      onClick={() => handleOpenTaskModal(task)}
+                      style={{ fontSize: "13px", color: "#ffffff", fontWeight: "500", lineHeight: "1.4", cursor: "pointer" }}
+                      className="card-title-hover"
+                    >
+                      {task.title}
+                    </span>
+                    {renderCardDueDate(task)}
+                  </div>
+                  <button onClick={() => handleDeleteTask(task.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}>
                     <Trash2 size={12} className="trash-hover" />
                   </button>
                 </div>
@@ -265,8 +337,17 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
             {doneTasks.map(task => (
               <div key={task.id} className="kanban-card" style={{ borderColor: "rgba(16,185,129,0.15)", background: "rgba(16,185,129,0.01)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                  <span style={{ fontSize: "13px", color: "var(--text-secondary)", textDecoration: "line-through", lineHeight: "1.4" }}>{task.title}</span>
-                  <button onClick={() => handleDeleteTask(task.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
+                    <span 
+                      onClick={() => handleOpenTaskModal(task)}
+                      style={{ fontSize: "13px", color: "var(--text-secondary)", textDecoration: "line-through", lineHeight: "1.4", cursor: "pointer" }}
+                      className="card-title-hover"
+                    >
+                      {task.title}
+                    </span>
+                    {renderCardDueDate(task)}
+                  </div>
+                  <button onClick={() => handleDeleteTask(task.id)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}>
                     <Trash2 size={12} className="trash-hover" />
                   </button>
                 </div>
@@ -307,10 +388,118 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
       <div className="glass-card" style={{ padding: "18px 24px", display: "flex", alignItems: "center", gap: "10px", background: "rgba(0,0,0,0.15)" }}>
         <AlertCircle size={15} style={{ color: "var(--accent-info)" }} />
         <span style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-          <strong>Micro-Interactions</strong>: Click directly on the priority badge of any task card to cyclically switch its priority scale (Low → Medium → High). Click status lane shift buttons to instantly advance tasks!
+          <strong>Micro-Interactions</strong>: Click directly on a task's title to inspect detailed descriptions, write sprint scope details, and set calendar due dates. Priority cyclic tags are saved instantly!
         </span>
       </div>
 
+      {/* Premium Kanban Card Detail Inspection Modal */}
+      {isModalOpen && selectedTask && (
+        <div className="modal-overlay-backdrop" onClick={() => setIsModalOpen(false)}>
+          <div className="premium-modal-window" onClick={(e) => e.stopPropagation()} style={{ width: "480px" }}>
+            <div className="aeye-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Edit3 size={15} style={{ color: "var(--accent-primary)" }} />
+                <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+                  Inspect Task Details
+                </span>
+              </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "18px" }}>
+              
+              {/* Task Title Edit */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>TASK ITEM TITLE</label>
+                <input
+                  type="text"
+                  value={editedTaskTitle}
+                  onChange={(e) => setEditedTaskTitle(e.target.value)}
+                  className="input-premium"
+                  style={{ fontSize: "14.5px", fontWeight: "600" }}
+                />
+              </div>
+
+              {/* Task Description Edit */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                <label style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>RICH DESCRIPTION</label>
+                <textarea
+                  value={taskDescription}
+                  onChange={(e) => setTaskDescription(e.target.value)}
+                  className="input-premium"
+                  placeholder="Type rich task details, sprint scope, or technical specs here..."
+                  style={{ fontSize: "13px", height: "100px", resize: "none", fontFamily: "var(--font-body)", lineHeight: "1.6" }}
+                />
+              </div>
+
+              {/* Due Date picker & Priority indicator row */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>TARGET DUE DATE</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <Calendar size={13} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+                    <input
+                      type="date"
+                      value={taskDueDate}
+                      onChange={(e) => setTaskDueDate(e.target.value)}
+                      className="input-premium"
+                      style={{ fontSize: "12px", padding: "6px 10px" }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <label style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)", letterSpacing: "0.05em" }}>PRIORITY SCALE</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const priorityOrder: ("low" | "medium" | "high")[] = ["low", "medium", "high"]
+                      const currentIdx = priorityOrder.indexOf(selectedTask.priority)
+                      const nextPriority = priorityOrder[(currentIdx + 1) % priorityOrder.length]
+                      setSelectedTask({ ...selectedTask, priority: nextPriority })
+                    }}
+                    className={`priority-pill ${selectedTask.priority}`}
+                    style={{ border: "none", cursor: "pointer", padding: "8px 14px", alignSelf: "stretch", textAlign: "center", display: "flex", justifyContent: "center", fontSize: "11px", fontWeight: "700" }}
+                  >
+                    Cycle: {selectedTask.priority}
+                  </button>
+                </div>
+              </div>
+
+              {/* Details footer metadata */}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: "1px solid var(--border-muted)", paddingTop: "14px", marginTop: "4px" }}>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  LANE STATUS: {selectedTask.status.toUpperCase()}
+                </span>
+                
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    onClick={() => setIsModalOpen(false)}
+                    className="btn-secondary"
+                    style={{ padding: "6px 14px", fontSize: "12px" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveTaskDetails}
+                    className="btn-premium"
+                    style={{ padding: "6px 18px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+                  >
+                    <Check size={12} />
+                    <span>Save Changes</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
