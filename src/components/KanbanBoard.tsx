@@ -172,7 +172,7 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
               border: "none", 
               fontSize: "20px", 
               fontWeight: "800", 
-              color: "#ffffff", 
+              color: "var(--text-primary)", 
               outline: "none",
               fontFamily: "var(--font-display)",
               width: "100%"
@@ -340,7 +340,7 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
                   <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
                     <span 
                       onClick={() => handleOpenTaskModal(task)}
-                      style={{ fontSize: "13px", color: "#ffffff", fontWeight: "500", lineHeight: "1.4", cursor: "pointer" }}
+                      style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: "500", lineHeight: "1.4", cursor: "pointer" }}
                       className="card-title-hover"
                     >
                       {task.title}
@@ -414,7 +414,7 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
                   <div style={{ display: "flex", flexDirection: "column", gap: "2px", flex: 1 }}>
                     <span 
                       onClick={() => handleOpenTaskModal(task)}
-                      style={{ fontSize: "13px", color: "#ffffff", fontWeight: "500", lineHeight: "1.4", cursor: "pointer" }}
+                      style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: "500", lineHeight: "1.4", cursor: "pointer" }}
                       className="card-title-hover"
                     >
                       {task.title}
@@ -553,7 +553,7 @@ export default function KanbanBoard({ page, onUpdatePage }: KanbanBoardProps) {
             <div className="aeye-header">
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Edit3 size={15} style={{ color: "var(--accent-primary)" }} />
-                <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+                <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
                   Inspect Task Details
                 </span>
               </div>

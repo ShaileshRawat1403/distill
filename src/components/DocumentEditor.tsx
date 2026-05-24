@@ -297,7 +297,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             <div key={idx} className="glass-card" style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "10px", margin: "16px 0", background: "rgba(0,0,0,0.2)" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <BarChart2 size={16} style={{ color: "var(--accent-warning)" }} />
-                <span style={{ fontSize: "13px", fontWeight: "700", color: "#ffffff" }}>Interactive Database Chart</span>
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-primary)" }}>Interactive Database Chart</span>
               </div>
               <span style={{ fontSize: "12px", color: "var(--text-muted)", lineHeight: "1.5" }}>
                 Active reference tables not found. Please **create a new Table block** in your sidebar and add rows to dynamically render visual data diagrams!
@@ -324,7 +324,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <BarChart2 size={16} style={{ color: "var(--accent-success)" }} />
-                <span style={{ fontSize: "13px", fontWeight: "700", color: "#ffffff" }}>
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-primary)" }}>
                   Status Distribution: {tablePage.title.replace(/^[^\w]*/, "")}
                 </span>
               </div>
@@ -395,7 +395,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       // H2 Header
       if (line.startsWith("## ")) {
         return (
-          <h2 key={idx} style={{ fontSize: "20px", fontWeight: "700", marginTop: "20px", marginBottom: "10px", color: "#ffffff" }}>
+          <h2 key={idx} style={{ fontSize: "20px", fontWeight: "700", marginTop: "20px", marginBottom: "10px", color: "var(--text-primary)" }}>
             {line.substring(3)}
           </h2>
         )
@@ -455,7 +455,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
               border: "none", 
               fontSize: "20px", 
               fontWeight: "800", 
-              color: "#ffffff", 
+              color: "var(--text-primary)", 
               outline: "none",
               fontFamily: "var(--font-display)",
               width: "100%"
@@ -478,10 +478,10 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
               style={{
                 padding: "6px 12px",
                 fontSize: "11px",
-                background: editMode === "edit" ? "rgba(255, 255, 255, 0.05)" : "transparent",
+                background: editMode === "edit" ? "var(--text-primary)" : "transparent",
                 border: "none",
                 borderRadius: "6px",
-                color: editMode === "edit" ? "#ffffff" : "var(--text-secondary)",
+                color: editMode === "edit" ? "var(--bg-primary)" : "var(--text-secondary)",
                 cursor: "pointer",
                 fontWeight: "700",
                 display: "flex",
@@ -499,10 +499,10 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
               style={{
                 padding: "6px 12px",
                 fontSize: "11px",
-                background: editMode === "preview" ? "rgba(255, 255, 255, 0.05)" : "transparent",
+                background: editMode === "preview" ? "var(--text-primary)" : "transparent",
                 border: "none",
                 borderRadius: "6px",
-                color: editMode === "preview" ? "#ffffff" : "var(--text-secondary)",
+                color: editMode === "preview" ? "var(--bg-primary)" : "var(--text-secondary)",
                 cursor: "pointer",
                 fontWeight: "700",
                 display: "flex",
@@ -658,7 +658,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Share2 size={16} style={{ color: "var(--accent-primary)" }} />
-            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
               Share & Dispatch Note
             </span>
           </div>
@@ -674,7 +674,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         <div className="glass-card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "10px", background: "rgba(0,0,0,0.15)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <CloudLightning size={14} style={{ color: "var(--accent-success)" }} />
-            <span style={{ fontSize: "12px", fontWeight: "650", color: "#ffffff" }}>Google Drive Sync</span>
+            <span style={{ fontSize: "12px", fontWeight: "650", color: "var(--text-primary)" }}>Google Drive Sync</span>
           </div>
           <p style={{ fontSize: "11px", color: "var(--text-secondary)", lineHeight: "1.4" }}>
             Instantly sync and create a backup copy of this document note directly in Google Drive cloud storage.
@@ -693,7 +693,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         <form onSubmit={handleDispatchEmail} style={{ display: "flex", flexDirection: "column", gap: "14px", flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Mail size={14} style={{ color: "var(--accent-primary)" }} />
-            <span style={{ fontSize: "12px", fontWeight: "650", color: "#ffffff" }}>Email Document</span>
+            <span style={{ fontSize: "12px", fontWeight: "650", color: "var(--text-primary)" }}>Email Document</span>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
@@ -763,7 +763,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "16px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <BookOpen size={16} style={{ color: "var(--accent-primary)" }} />
-            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "#ffffff" }}>
+            <span style={{ fontSize: "14px", fontWeight: "700", fontFamily: "var(--font-display)", color: "var(--text-primary)" }}>
               Scholar's Sanctum
             </span>
           </div>
@@ -777,7 +777,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
 
         {/* Prose Audit HUD */}
         <div className="prose-analytics-card">
-          <div style={{ fontSize: "10.5px", fontWeight: "700", color: "#ffffff", borderBottom: "1px solid var(--border-muted)", paddingBottom: "6px", fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}>
+          <div style={{ fontSize: "10.5px", fontWeight: "700", color: "var(--text-primary)", borderBottom: "1px solid var(--border-muted)", paddingBottom: "6px", fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}>
             PROSE AUDIT HUD METRICS
           </div>
           <div className="prose-audit-metric-row">
@@ -820,7 +820,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {citations.map(c => (
               <div key={c.id} className="citation-row-item">
-                <div style={{ fontSize: "12px", fontWeight: "600", color: "#ffffff" }}>{c.title}</div>
+                <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-primary)" }}>{c.title}</div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
                   <span>{c.author} ({c.year})</span>
                   <button

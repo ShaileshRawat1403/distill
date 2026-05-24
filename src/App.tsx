@@ -209,6 +209,7 @@ export default function App() {
     anthropic: localStorage.getItem("distill_api_key_anthropic") || "",
     gemini: localStorage.getItem("distill_api_key_gemini") || "",
     groq: localStorage.getItem("distill_api_key_groq") || "",
+    useSubscription: localStorage.getItem("distill_use_subscription") === "true",
   })
 
   // System audit logger (defined early so bootstrap can use it)
@@ -1163,6 +1164,50 @@ export default function App() {
                       style={{ padding: "10px 16px", fontSize: "12.5px", color: "var(--accent-danger)", borderColor: "rgba(239,68,68,0.2)" }}
                     >
                       <span>Reset Workspace</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Premium AI Subscription Sync */}
+                <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "16px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <Sparkles size={18} style={{ color: "var(--accent-primary)" }} />
+                      <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>
+                        Rook & Dax Cloud Subscription
+                      </h3>
+                    </div>
+                    {apiKeys.useSubscription && (
+                      <span className="pulse-dot" style={{ backgroundColor: "var(--accent-success)", boxShadow: "0 0 10px var(--accent-success)" }} title="Active secure subscription tunnel"></span>
+                    )}
+                  </div>
+
+                  <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
+                    Enable this option if you have an active **ChatGPT Plus** or **Gemini Advanced** subscription synced via Rook/Dax secure workspaces. This tunnels requests through our shared premium cloud gateway—**no individual API keys needed!**
+                  </p>
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255, 255, 255, 0.015)", padding: "12px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-muted)" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                      <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: "700" }}>
+                        {apiKeys.useSubscription ? "🟢 SUBSCRIPTION TUNNEL ACTIVE" : "⚪ SUBSCRIPTION INACTIVE"}
+                      </span>
+                      <span style={{ fontSize: "10.5px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        ROOK/DAX CLOUD HANDSHAKE
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const nextVal = !apiKeys.useSubscription;
+                        const updated = { ...apiKeys, useSubscription: nextVal };
+                        setApiKeys(updated);
+                        localStorage.setItem("distill_use_subscription", nextVal ? "true" : "false");
+                        logSystemMessage("SYSTEM", nextVal ? "Authorized Rook/Dax Premium AI Subscription" : "Deauthorized shared cloud subscriptions");
+                      }}
+                      className={apiKeys.useSubscription ? "btn-secondary" : "btn-premium"}
+                      style={{ padding: "8px 16px", fontSize: "12px" }}
+                    >
+                      {apiKeys.useSubscription ? "Disconnect" : "Connect Account"}
                     </button>
                   </div>
                 </div>
