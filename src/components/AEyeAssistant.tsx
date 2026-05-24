@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { Eye, Volume2, VolumeX, X, Send, Sliders, MessageSquare, Type, Zap, AlertTriangle, Play, Square } from "lucide-react"
+import { Eye, Volume2, VolumeX, X, Send, Sliders, MessageSquare, Type, Zap, AlertTriangle, Play, Square, Mic, MicOff } from "lucide-react"
 import { streamPrompt, APIKeys } from "../utils/ai"
 import { Page } from "../App"
 
@@ -33,6 +33,44 @@ export default function AEyeAssistant({
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [fontSize, setFontSize] = useState(100)
   const [highContrast, setHighContrast] = useState(false)
+  const [isDictating, setIsDictating] = useState(false)
+  const chatRecognitionRef = useRef<any>(null)
+
+  // Initialize speech recognition for A-Eye chat
+  useEffect(() => {
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (SpeechRecognition) {
+      const rec = new SpeechRecognition()
+      rec.continuous = false
+      rec.interimResults = false
+      rec.lang = "en-US"
+      rec.onresult = (e: any) => {
+        const trans = e.results[0][0].transcript
+        if (trans) setChatInput(prev => prev ? prev + " " + trans : trans)
+      }
+      rec.onend = () => setIsDictating(false)
+      chatRecognitionRef.current = rec
+    }
+  }, [])
+
+  const handleToggleDictation = () => {
+    if (!chatRecognitionRef.current) {
+      alert("Voice speech recognition not supported on this browser context.")
+      return
+    }
+    if (isDictating) {
+      chatRecognitionRef.current.stop()
+      setIsDictating(false)
+    } else {
+      try {
+        chatRecognitionRef.current.start()
+        setIsDictating(true)
+      } catch {
+        // Silent
+      }
+    }
+  }
 
   const chatEndRef = useRef<HTMLDivElement>(null)
 
@@ -279,20 +317,39 @@ export default function AEyeAssistant({
               </div>
 
               {/* Input Message panel */}
-              <div className="aeye-input-bar">
+              <div className="aeye-input-bar" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
-                  placeholder="Ask A-Eye anything..."
+                  placeholder={isDictating ? "Listening, speak now..." : "Ask A-Eye anything..."}
                   className="input-premium"
-                  style={{ flex: 1, padding: "8px 12px" }}
+                  style={{ flex: 1, padding: "8px 12px", borderColor: isDictating ? "var(--accent-danger)" : "var(--border-muted)" }}
                 />
+                
+                <button
+                  onClick={handleToggleDictation}
+                  className={`btn-secondary ${isDictating ? "active" : ""}`}
+                  style={{ 
+                    padding: "8px", 
+                    width: "36px", 
+                    height: "36px", 
+                    display: "flex", 
+                    alignItems: "center", 
+                    justifyContent: "center",
+                    color: isDictating ? "var(--accent-danger)" : "var(--text-primary)",
+                    borderColor: isDictating ? "rgba(239,68,68,0.4)" : "var(--border-muted)"
+                  }}
+                  title={isDictating ? "Stop voice dictation" : "Dictate query"}
+                >
+                  {isDictating ? <MicOff size={13} style={{ animation: "pulse 1s infinite" }} /> : <Mic size={13} />}
+                </button>
+
                 <button
                   onClick={() => handleSendMessage()}
                   className="btn-premium"
-                  style={{ padding: "8px 12px", width: "40px" }}
+                  style={{ padding: "8px 12px", width: "40px", height: "36px" }}
                 >
                   <Send size={12} />
                 </button>

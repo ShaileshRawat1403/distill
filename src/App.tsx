@@ -25,7 +25,8 @@ import {
   Edit3,
   ListTodo,
   Calendar,
-  CloudLightning
+  CloudLightning,
+  Orbit
 } from "lucide-react"
 
 // Import Components
@@ -35,6 +36,7 @@ import JournalLogger from "./components/JournalLogger"
 import DatabaseTable from "./components/DatabaseTable"
 import WorkspaceCopilot from "./components/WorkspaceCopilot"
 import CognitiveArena from "./components/CognitiveArena"
+import CelestialMap from "./components/CelestialMap"
 import RewriteRoom from "./components/RewriteRoom"
 import ConceptLadder from "./components/ConceptLadder"
 import DecisionUnpacker from "./components/DecisionUnpacker"
@@ -103,6 +105,23 @@ export interface SystemLog {
 type WorkspaceContext = "enterprise" | "startup" | "personal"
 type ThemeOption = "default" | "vercel" | "emerald" | "sunset" | "light" | "neon" | "frost"
 
+const safeLocalStorage = {
+  getItem: (key: string): string | null => {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  },
+  setItem: (key: string, value: string): void => {
+    try {
+      localStorage.setItem(key, value)
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export default function App() {
   // Workspace boots as "enterprise"; real value loads from IndexedDB on mount
   const [workspace, setWorkspace] = useState<WorkspaceContext>("enterprise")
@@ -116,7 +135,7 @@ export default function App() {
   const [activePageId, setActivePageId] = useState<string>("")
 
   // Google Drive Integration State
-  const [driveConnected, setDriveConnected] = useState<boolean>(localStorage.getItem("distill_drive_connected") === "true")
+  const [driveConnected, setDriveConnected] = useState<boolean>(safeLocalStorage.getItem("distill_drive_connected") === "true")
   const [isSyncingDrive, setIsSyncingDrive] = useState<boolean>(false)
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState<boolean>(false)
 
@@ -149,7 +168,7 @@ export default function App() {
   }
   // searchTerm removed — global search now lives in SearchModal (Cmd+K)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false)
-  const [theme, setTheme] = useState<ThemeOption>((localStorage.getItem("distill_theme") as ThemeOption) || "default")
+  const [theme, setTheme] = useState<ThemeOption>((safeLocalStorage.getItem("distill_theme") as ThemeOption) || "default")
   
   // Real-time System Console Audit logs
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([])
@@ -205,11 +224,11 @@ export default function App() {
   
   // API Keys stored in localStorage
   const [apiKeys, setApiKeys] = useState({
-    openai: localStorage.getItem("distill_api_key_openai") || "",
-    anthropic: localStorage.getItem("distill_api_key_anthropic") || "",
-    gemini: localStorage.getItem("distill_api_key_gemini") || "",
-    groq: localStorage.getItem("distill_api_key_groq") || "",
-    useSubscription: localStorage.getItem("distill_use_subscription") === "true",
+    openai: safeLocalStorage.getItem("distill_api_key_openai") || "",
+    anthropic: safeLocalStorage.getItem("distill_api_key_anthropic") || "",
+    gemini: safeLocalStorage.getItem("distill_api_key_gemini") || "",
+    groq: safeLocalStorage.getItem("distill_api_key_groq") || "",
+    useSubscription: safeLocalStorage.getItem("distill_use_subscription") === "true",
   })
 
   // System audit logger (defined early so bootstrap can use it)
@@ -233,13 +252,18 @@ export default function App() {
     })
 
     ;(async () => {
-      await migrateFromLocalStorage()
+      try {
+        await migrateFromLocalStorage()
 
-      const savedWs = await getSetting("active_workspace")
-      if (!cancelled && savedWs) setWorkspace(savedWs as WorkspaceContext)
+        const savedWs = await getSetting("active_workspace")
+        if (!cancelled && savedWs) setWorkspace(savedWs as WorkspaceContext)
 
-      if (!cancelled) setDbReady(true)
-      logSystemMessage("DATABASE", "IndexedDB (Dexie) initialised and ready")
+        if (!cancelled) setDbReady(true)
+        logSystemMessage("DATABASE", "IndexedDB (Dexie) initialised and ready")
+      } catch (err: any) {
+        logSystemMessage("ERROR", `Database initialisation failed: ${err?.message || err}`)
+        if (!cancelled) setDbReady(true)
+      }
 
       // Warm up embedding model in background — non-blocking
       warmUp()
@@ -340,30 +364,52 @@ export default function App() {
     let cancelled = false
 
     ;(async () => {
-      // Persist active workspace selection
-      await setSetting("active_workspace", workspace)
+      try {
+        // Persist active workspace selection
+        await setSetting("active_workspace", workspace)
 
-      const rows = await loadPages(workspace)
+        const rows = await loadPages(workspace)
 
-      if (cancelled) return
+        if (cancelled) return
 
-      if (rows.length > 0) {
-        setPages(rows)
-        setActivePageId(rows[0].id)
-        logSystemMessage("DATABASE", `Loaded ${rows.length} pages from IndexedDB for "${workspace.toUpperCase()}"`)
-        // Background: embed any pages that don't have fresh vectors yet
-        syncEmbeddings(workspace, rows).catch(() => {/* silent — non-critical */})
-      } else if (!didSeedRef.current[workspace]) {
-        didSeedRef.current[workspace] = true
+        if (rows.length > 0) {
+          // Sanitize page fields to immunize components from undefined content, title, or tags
+          const sanitizedRows = rows.map(r => ({
+            ...r,
+            title: r.title || "Untitled Note",
+            content: r.content || "",
+            tags: r.tags || []
+          }))
+          setPages(sanitizedRows)
+          setActivePageId(sanitizedRows[0].id)
+          logSystemMessage("DATABASE", `Loaded ${sanitizedRows.length} pages from IndexedDB for "${workspace.toUpperCase()}"`)
+          // Background: embed any pages that don't have fresh vectors yet
+          syncEmbeddings(workspace, sanitizedRows).catch(() => {/* silent — non-critical */})
+        } else if (!didSeedRef.current[workspace]) {
+          didSeedRef.current[workspace] = true
+          const seeded = seedPages(workspace)
+          // Sanitize seeded templates
+          const sanitizedSeeded = seeded.map(s => ({
+            ...s,
+            title: s.title || "Untitled Note",
+            content: s.content || "",
+            tags: s.tags || []
+          }))
+          setPages(sanitizedSeeded)
+          setActivePageId(sanitizedSeeded.length > 0 ? sanitizedSeeded[0].id : "")
+          await bulkUpsertPages(workspace, sanitizedSeeded)
+          logSystemMessage("DATABASE", `Seeded ${sanitizedSeeded.length} default templates for "${workspace.toUpperCase()}"`)
+          syncEmbeddings(workspace, sanitizedSeeded).catch(() => {/* silent */})
+        } else {
+          setPages([])
+          setActivePageId("")
+        }
+      } catch (err: any) {
+        logSystemMessage("ERROR", `Failed to load workspace pages: ${err?.message || err}`)
+        if (cancelled) return
         const seeded = seedPages(workspace)
         setPages(seeded)
         setActivePageId(seeded.length > 0 ? seeded[0].id : "")
-        await bulkUpsertPages(workspace, seeded)
-        logSystemMessage("DATABASE", `Seeded ${seeded.length} default templates for "${workspace.toUpperCase()}"`)
-        syncEmbeddings(workspace, seeded).catch(() => {/* silent */})
-      } else {
-        setPages([])
-        setActivePageId("")
       }
     })()
 
@@ -490,7 +536,7 @@ export default function App() {
   // Sync theme with document class and localStorage
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem("distill_theme", theme)
+    safeLocalStorage.setItem("distill_theme", theme)
   }, [theme])
 
   // Monitor Ollama Local connection latency
@@ -811,6 +857,21 @@ export default function App() {
                 <Activity size={14} style={{ color: "var(--accent-secondary)" }} />
                 <span>AI Cognitive Arena</span>
               </button>
+
+              <button
+                onClick={() => {
+                  if (document.startViewTransition) {
+                    document.startViewTransition(() => setActivePageId("map"))
+                  } else {
+                    setActivePageId("map")
+                  }
+                }}
+                className={`sidebar-page-item ${activePageId === "map" ? "active" : ""}`}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                <Orbit size={14} style={{ color: "var(--accent-secondary)" }} />
+                <span>Celestial Thought-Graph</span>
+              </button>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "center", margin: "0 auto" }}>
@@ -819,6 +880,9 @@ export default function App() {
               </div>
               <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }} onClick={() => setActivePageId("arena")} title="AI Cognitive Arena">
                 <Activity size={16} style={{ color: "var(--accent-secondary)" }} />
+              </div>
+              <div style={{ background: "rgba(255, 255, 255, 0.04)", border: "1px solid var(--border-muted)", width: "36px", height: "36px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer" }} onClick={() => setActivePageId("map")} title="Celestial Thought-Graph">
+                <Orbit size={16} style={{ color: "var(--accent-secondary)" }} />
               </div>
             </div>
           )}
@@ -1115,6 +1179,18 @@ export default function App() {
               ollamaModels={ollamaModels}
               logSystemMessage={logSystemMessage}
             />
+          ) : activePageId === "map" ? (
+            <CelestialMap
+              pages={pages}
+              workspace={workspace}
+              onNavigate={(id) => {
+                if (document.startViewTransition) {
+                  document.startViewTransition(() => setActivePageId(id))
+                } else {
+                  setActivePageId(id)
+                }
+              }}
+            />
           ) : activePageId === "settings" ? (
             /* Settings overlay panel dashboard */
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "32px", width: "100%" }}>
@@ -1201,7 +1277,7 @@ export default function App() {
                         const nextVal = !apiKeys.useSubscription;
                         const updated = { ...apiKeys, useSubscription: nextVal };
                         setApiKeys(updated);
-                        localStorage.setItem("distill_use_subscription", nextVal ? "true" : "false");
+                        safeLocalStorage.setItem("distill_use_subscription", nextVal ? "true" : "false");
                         logSystemMessage("SYSTEM", nextVal ? "Authorized Rook/Dax Premium AI Subscription" : "Deauthorized shared cloud subscriptions");
                       }}
                       className={apiKeys.useSubscription ? "btn-secondary" : "btn-premium"}
@@ -1229,7 +1305,7 @@ export default function App() {
                       onChange={(e) => {
                         const updated = { ...apiKeys, openai: e.target.value }
                         setApiKeys(updated)
-                        localStorage.setItem("distill_api_key_openai", e.target.value)
+                        safeLocalStorage.setItem("distill_api_key_openai", e.target.value)
                       }}
                       placeholder="sk-proj-..."
                       className="input-premium"
@@ -1244,7 +1320,7 @@ export default function App() {
                       onChange={(e) => {
                         const updated = { ...apiKeys, gemini: e.target.value }
                         setApiKeys(updated)
-                        localStorage.setItem("distill_api_key_gemini", e.target.value)
+                        safeLocalStorage.setItem("distill_api_key_gemini", e.target.value)
                       }}
                       placeholder="AIzaSy..."
                       className="input-premium"
@@ -1259,7 +1335,7 @@ export default function App() {
                       onChange={(e) => {
                         const updated = { ...apiKeys, anthropic: e.target.value }
                         setApiKeys(updated)
-                        localStorage.setItem("distill_api_key_anthropic", e.target.value)
+                        safeLocalStorage.setItem("distill_api_key_anthropic", e.target.value)
                       }}
                       placeholder="sk-ant-..."
                       className="input-premium"
@@ -1274,7 +1350,7 @@ export default function App() {
                       onChange={(e) => {
                         const updated = { ...apiKeys, groq: e.target.value }
                         setApiKeys(updated)
-                        localStorage.setItem("distill_api_key_groq", e.target.value)
+                        safeLocalStorage.setItem("distill_api_key_groq", e.target.value)
                       }}
                       placeholder="gsk_..."
                       className="input-premium"
@@ -1349,7 +1425,7 @@ export default function App() {
                       <button
                         onClick={() => {
                           setDriveConnected(false)
-                          localStorage.setItem("distill_drive_connected", "false")
+                          safeLocalStorage.setItem("distill_drive_connected", "false")
                           logSystemMessage("SYSTEM", "Disconnected Google Drive integration")
                         }}
                         className="btn-secondary"
@@ -1369,7 +1445,7 @@ export default function App() {
                           setTimeout(() => {
                             setDriveConnected(true)
                             setIsSyncingDrive(false)
-                            localStorage.setItem("distill_drive_connected", "true")
+                            safeLocalStorage.setItem("distill_drive_connected", "true")
                             logSystemMessage("SYSTEM", "Authenticated successfully with Google Drive OAuth secure channel")
                           }, 1200)
                         }}

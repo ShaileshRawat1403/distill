@@ -148,12 +148,22 @@ export async function isEmbeddingFresh(
 // so existing users don't lose their work.
 
 export async function migrateFromLocalStorage(): Promise<void> {
-  const migrated = await getSetting("__migrated_v1")
+  let migrated: string | undefined
+  try {
+    migrated = await getSetting("__migrated_v1")
+  } catch {
+    // DB error
+  }
   if (migrated === "true") return
 
   const workspaces = ["enterprise", "startup", "personal"]
   for (const ws of workspaces) {
-    const raw = localStorage.getItem(`distill_pages_${ws}`)
+    let raw: string | null = null
+    try {
+      raw = localStorage.getItem(`distill_pages_${ws}`)
+    } catch {
+      // localStorage blocked/disabled
+    }
     if (!raw) continue
     try {
       const pages = JSON.parse(raw) as Page[]
@@ -166,9 +176,24 @@ export async function migrateFromLocalStorage(): Promise<void> {
   }
 
   // Also migrate active workspace setting
-  const activeWs = localStorage.getItem("distill_active_workspace")
-  if (activeWs) await setSetting("active_workspace", activeWs)
+  let activeWs: string | null = null
+  try {
+    activeWs = localStorage.getItem("distill_active_workspace")
+  } catch {
+    // localStorage blocked
+  }
+  if (activeWs) {
+    try {
+      await setSetting("active_workspace", activeWs)
+    } catch {
+      // DB error
+    }
+  }
 
   // Mark done so we don't re-run
-  await setSetting("__migrated_v1", "true")
+  try {
+    await setSetting("__migrated_v1", "true")
+  } catch {
+    // DB error
+  }
 }

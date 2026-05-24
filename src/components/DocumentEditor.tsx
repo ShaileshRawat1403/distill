@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react"
-import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2, Mail, Share2, CloudLightning, Send, X, BookOpen } from "lucide-react"
+import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2, Mail, Share2, CloudLightning, Send, X, BookOpen, Mic, MicOff, Printer, Play } from "lucide-react"
 import { Page } from "../App"
 
 interface DocumentEditorProps {
@@ -17,6 +17,7 @@ interface DocumentEditorProps {
 }
 
 type EditMode = "edit" | "preview"
+type CompilerLayout = "arxiv" | "ieee" | "thesis"
 
 interface SlashOption {
   key: string
@@ -44,25 +45,124 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
   const [isBackingUpDrive, setIsBackingUpDrive] = useState(false)
   const [driveBackupComplete, setDriveBackupComplete] = useState(false)
 
+  // Paperplane dispatcher flight animation flag
+  const [triggerPlaneFly, setTriggerPlaneFly] = useState(false)
+
+  // Voice-to-Text Dictation States
+  const [isDictating, setIsDictating] = useState(false)
+  const recognitionRef = useRef<any>(null)
+
+  // Scholar's Sanctum States
+  const [isAcademicHubOpen, setIsAcademicHubOpen] = useState(false)
+  const [sanctumTab, setSanctumTab] = useState<"sources" | "compiler">("sources")
+  const [compilerLayout, setCompilerLayout] = useState<CompilerLayout>("arxiv")
+  const [isCompilerOpen, setIsCompilerOpen] = useState(false)
+
+  const [citations, setCitations] = useState([
+    { id: "c1", author: "Rawat, S.", title: "Autonomous Multi-Agent Networks", year: "2026", doi: "10.1007/s11276-026-04" },
+    { id: "c2", author: "Layek, A.", title: "Decentralized Cached Index Topologies", year: "2026", doi: "10.1109/tsc.2026.1" },
+    { id: "c3", author: "Borg, O.", title: "Glowmorphic Vector Processing", year: "2025", doi: "10.1145/3571884" }
+  ])
+  const [newAuthor, setNewAuthor] = useState("")
+  const [newTitle, setNewTitle] = useState("")
+  const [newYear, setNewYear] = useState("")
+  const [newDoi, setNewDoi] = useState("")
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     setEmailSubject(page.title)
     setDispatchComplete(false)
     setDriveBackupComplete(false)
+    setAppendixInjected(false)
   }, [page])
 
-  // Simulate dispatching email
+  // Initialize Speech Recognition API
+  useEffect(() => {
+    // @ts-ignore
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = "en-US"
+
+      recognition.onresult = (event: any) => {
+        const textarea = textareaRef.current
+        if (!textarea) return
+
+        let interimTranscript = ""
+        let finalTranscript = ""
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript
+          } else {
+            interimTranscript += event.results[i][0].transcript
+          }
+        }
+
+        if (finalTranscript) {
+          const text = page.content
+          const start = textarea.selectionStart
+          const end = textarea.selectionEnd
+          const processedText = finalTranscript.startsWith(" ") ? finalTranscript : " " + finalTranscript
+          const updatedContent = text.substring(0, start) + processedText + text.substring(end)
+          
+          onUpdatePage({ ...page, content: updatedContent })
+          
+          // Re-adjust caret position after appending text
+          setTimeout(() => {
+            textarea.focus()
+            textarea.setSelectionRange(start + processedText.length, start + processedText.length)
+          }, 40)
+        }
+      }
+
+      recognition.onend = () => {
+        setIsDictating(false)
+      }
+
+      recognitionRef.current = recognition
+    }
+  }, [page, onUpdatePage])
+
+  // Toggle Voice Recognition Dictation
+  const handleToggleDictation = () => {
+    if (!recognitionRef.current) {
+      alert("Browser native Web Speech API not supported on this browser context. Please use Chrome, Safari or Edge.")
+      return
+    }
+
+    if (isDictating) {
+      recognitionRef.current.stop()
+      setIsDictating(false)
+    } else {
+      setEditMode("edit")
+      setTimeout(() => {
+        try {
+          recognitionRef.current.start()
+          setIsDictating(true)
+        } catch {
+          // Already running
+        }
+      }, 100)
+    }
+  }
+
+  // Simulate dispatching email with paperplane fly animation
   const handleDispatchEmail = (e: React.FormEvent) => {
     e.preventDefault()
     if (!emailRecipient.trim()) return
 
     setIsDispatching(true)
     setDispatchComplete(false)
+    setTriggerPlaneFly(true)
 
     setTimeout(() => {
       setIsDispatching(false)
       setDispatchComplete(true)
+      setTriggerPlaneFly(false)
       
       const mailtoLink = `mailto:${emailRecipient}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(`${emailMessage}\n\n---\n\n${page.content}`)}`
       
@@ -70,8 +170,8 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       
       setTimeout(() => {
         window.location.href = mailtoLink
-      }, 800)
-    }, 1200)
+      }, 700)
+    }, 1400)
   }
 
   // Simulate Drive Backup
@@ -84,18 +184,6 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       console.log(`Backup completed to Google Drive: ${page.title}`)
     }, 1500)
   }
-
-  // Academic & Reference Hub states
-  const [citations, setCitations] = useState([
-    { id: "c1", author: "Rawat, S.", title: "Autonomous Multi-Agent Networks", year: "2026", doi: "10.1007/s11276-026-04" },
-    { id: "c2", author: "Layek, A.", title: "Decentralized Cached Index Topologies", year: "2026", doi: "10.1109/tsc.2026.1" },
-    { id: "c3", author: "Borg, O.", title: "Glowmorphic Vector Processing", year: "2025", doi: "10.1145/3571884" }
-  ])
-  const [newAuthor, setNewAuthor] = useState("")
-  const [newTitle, setNewTitle] = useState("")
-  const [newYear, setNewYear] = useState("")
-  const [newDoi, setNewDoi] = useState("")
-  const [isAcademicHubOpen, setIsAcademicHubOpen] = useState(false)
 
   // Prose Calculations
   const paragraphsCount = page.content.split(/\n\s*\n/).filter(Boolean).length
@@ -141,6 +229,8 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
   }
 
   // Compile bibliography references
+  const [appendixInjected, setAppendixInjected] = useState(false)
+
   const handleCompileBibliography = () => {
     if (page.content.includes("### References") || page.content.includes("### Bibliography")) {
       alert("References bibliography are already compiled inside this document!")
@@ -153,6 +243,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
     })
     
     onUpdatePage({ ...page, content: page.content + bibText })
+    setAppendixInjected(true)
   }
 
   // Add a citation reference source
@@ -189,6 +280,164 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
     link.download = `${page.title.toLowerCase().replace(/\s+/g, "_")}.md`
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Hidden print iframe compiler logic
+  const handlePrintPDF = () => {
+    const printContent = document.getElementById("academic-preview-sheet")?.innerHTML || ""
+    
+    // Create print-specific iframe
+    const iframe = document.createElement("iframe")
+    iframe.style.position = "fixed"
+    iframe.style.right = "0"
+    iframe.style.bottom = "0"
+    iframe.style.width = "0"
+    iframe.style.height = "0"
+    iframe.style.border = "none"
+    document.body.appendChild(iframe)
+
+    const doc = iframe.contentWindow?.document
+    if (doc) {
+      doc.open()
+      doc.write(`
+        <html>
+          <head>
+            <title>${page.title}</title>
+            <style>
+              body {
+                font-family: "Times New Roman", Times, Georgia, serif;
+                color: #000000;
+                background: #ffffff;
+                padding: 2.2cm 2cm;
+                line-height: 1.6;
+                font-size: 11pt;
+              }
+              h1, h2, h3, h4 {
+                font-family: "Times New Roman", serif;
+                color: #000000;
+                font-weight: bold;
+              }
+              h1 {
+                font-size: 20pt;
+                text-align: center;
+                margin-bottom: 0.8cm;
+              }
+              h2 {
+                font-size: 14pt;
+                margin-top: 1.2cm;
+                border-bottom: 0.5px solid #333333;
+                padding-bottom: 4px;
+              }
+              p {
+                margin: 0.6em 0;
+                text-align: justify;
+              }
+              
+              /* NEURIPS / ARXIV PREPRINT STYLES */
+              ${compilerLayout === "arxiv" ? `
+                body {
+                  max-width: 17cm;
+                  margin: 0 auto;
+                }
+                .abstract-block {
+                  background: #f8f9fa;
+                  border: 1px solid #e9ecef;
+                  padding: 18px;
+                  margin: 1.5cm 0;
+                  border-radius: 4px;
+                  font-size: 10pt;
+                }
+                .abstract-title {
+                  font-weight: bold;
+                  text-align: center;
+                  margin-bottom: 6px;
+                  text-transform: uppercase;
+                  letter-spacing: 0.08em;
+                }
+              ` : ""}
+
+              /* IEEE DOUBLE COLUMN STYLES */
+              ${compilerLayout === "ieee" ? `
+                body {
+                  column-count: 2;
+                  column-gap: 1.2cm;
+                  padding: 1.6cm 1.4cm;
+                  font-size: 9.5pt;
+                }
+                .title-header-block {
+                  column-span: all;
+                  text-align: center;
+                  margin-bottom: 1.2cm;
+                }
+                .abstract-block {
+                  font-weight: bold;
+                  margin-bottom: 1cm;
+                }
+                h2 {
+                  text-transform: uppercase;
+                  font-size: 10pt;
+                  text-align: center;
+                  border-bottom: none;
+                }
+              ` : ""}
+
+              /* PHD DISSERTATION BOUNDS */
+              ${compilerLayout === "thesis" ? `
+                body {
+                  font-size: 12pt;
+                  line-height: 1.95;
+                  padding-left: 3.5cm; /* left binding margin safety */
+                }
+                h1 {
+                  font-size: 22pt;
+                  text-transform: uppercase;
+                  margin-top: 4cm;
+                  margin-bottom: 1.5cm;
+                }
+                h2 {
+                  font-size: 15pt;
+                  margin-top: 1.5cm;
+                }
+              ` : ""}
+
+              .math-block {
+                text-align: center;
+                font-family: "Cambria Math", "Times New Roman", serif;
+                font-size: 12pt;
+                margin: 1.4em 0;
+                font-style: italic;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                position: relative;
+              }
+              .math-number {
+                position: absolute;
+                right: 0;
+                font-style: normal;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="${compilerLayout === "ieee" ? "title-header-block" : ""}">
+              <h1>${page.title.replace(/^[^\w]*/, "")}</h1>
+              <div style="text-align: center; font-size: 10pt; color: #555555; margin-bottom: 1.5em; font-family: sans-serif;">
+                <strong>Distill AI Workspace Collaborators</strong> &bull; Seseeded Research preprint
+              </div>
+            </div>
+            ${printContent}
+          </body>
+        </html>
+      `)
+      doc.close()
+
+      // Fire browser printing sheet
+      setTimeout(() => {
+        iframe.contentWindow?.focus()
+        iframe.contentWindow?.print()
+        document.body.removeChild(iframe)
+      }, 400)
+    }
   }
 
   // Floating Slash Command options inspired by Distill block types
@@ -286,11 +535,75 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
   const readTime = Math.max(1, Math.round(wordsCount / 200))
 
   // Custom client Markdown parser compiling visual representations
-  const renderMarkdownPreview = (text: string) => {
+  const renderMarkdownPreview = (text: string, isCompiler: boolean = false) => {
     const lines = text.split("\n")
+    let inAbstract = false
+    let equationIndex = 0
+
     return lines.map((line, idx) => {
+      // Inline equation or TeX math blocks parsing
+      if (line.startsWith("$$") || line.endsWith("$$")) {
+        const formula = line.replace(/\$\$/g, "").trim()
+        if (!formula) return null
+        equationIndex++
+        return (
+          <div 
+            key={idx} 
+            className="math-block" 
+            style={{ 
+              textAlign: "center", 
+              fontFamily: '"Cambria Math", "Times New Roman", Times, serif', 
+              fontSize: isCompiler ? "16px" : "15px", 
+              margin: "18px 0",
+              color: isCompiler ? "#000000" : "var(--text-primary)",
+              fontStyle: "italic",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              position: "relative"
+            }}
+          >
+            <span>{formula}</span>
+            <span style={{ position: "absolute", right: "10px", fontStyle: "normal", fontSize: "12px", opacity: 0.6 }}>
+              ({equationIndex})
+            </span>
+          </div>
+        )
+      }
+
+      // Special abstract block markers
+      if (line.startsWith("### Abstract")) {
+        inAbstract = true
+        return (
+          <div key={idx} className="abstract-block" style={{ 
+            background: isCompiler ? "#f8f9fa" : "rgba(255,255,255,0.02)",
+            border: isCompiler ? "1px solid #e9ecef" : "1px solid var(--border-muted)",
+            padding: "16px",
+            margin: "20px 0",
+            borderRadius: "4px",
+            fontSize: "13.5px",
+            color: isCompiler ? "#000000" : "var(--text-secondary)"
+          }}>
+            <div style={{ fontWeight: "bold", textAlign: "center", marginBottom: "6px", textTransform: "uppercase", letterSpacing: "0.08em", color: isCompiler ? "#000" : "var(--text-primary)" }}>
+              Abstract
+            </div>
+            <p style={{ margin: 0, textAlign: "justify", fontStyle: isCompiler ? "italic" : "normal" }}>
+              {line.substring(12).trim() || lines[idx+1] || ""}
+            </p>
+          </div>
+        )
+      }
+
+      if (inAbstract && line.trim() === "") {
+        inAbstract = false
+      }
+
+      // Skip lines that have been processed inside Abstract block
+      if (inAbstract && !line.startsWith("### Abstract")) return null
+
       // Interactive [chart] block compiler
       if (line.trim() === "[chart]") {
+        if (isCompiler) return null // Hide chart widgets in printed academic layout papers!
         const tablePage = pages.find(p => p.type === "table" && p.rows && p.rows.length > 0)
         if (!tablePage || !tablePage.rows) {
           return (
@@ -387,7 +700,21 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       // H1 Header
       if (line.startsWith("# ")) {
         return (
-          <h1 key={idx} className="gradient-accent-text" style={{ fontSize: "28px", fontWeight: "800", marginTop: "24px", marginBottom: "12px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "6px" }}>
+          <h1 
+            key={idx} 
+            className={isCompiler ? "" : "gradient-accent-text"} 
+            style={{ 
+              fontSize: isCompiler ? "22px" : "28px", 
+              fontWeight: "800", 
+              marginTop: "24px", 
+              marginBottom: "12px", 
+              borderBottom: isCompiler ? "none" : "1px solid var(--border-muted)", 
+              paddingBottom: "6px",
+              color: isCompiler ? "#000" : "var(--text-primary)",
+              textAlign: isCompiler ? "center" : "left",
+              fontFamily: isCompiler ? '"Times New Roman", Times, serif' : 'var(--font-display)'
+            }}
+          >
             {line.substring(2)}
           </h1>
         )
@@ -395,7 +722,20 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       // H2 Header
       if (line.startsWith("## ")) {
         return (
-          <h2 key={idx} style={{ fontSize: "20px", fontWeight: "700", marginTop: "20px", marginBottom: "10px", color: "var(--text-primary)" }}>
+          <h2 
+            key={idx} 
+            style={{ 
+              fontSize: isCompiler ? "16px" : "20px", 
+              fontWeight: "700", 
+              marginTop: "20px", 
+              marginBottom: "10px", 
+              color: isCompiler ? "#000" : "var(--text-primary)",
+              fontFamily: isCompiler ? '"Times New Roman", Times, serif' : 'var(--font-display)',
+              borderBottom: isCompiler && compilerLayout === "ieee" ? "none" : isCompiler ? "0.5px solid #aaa" : "none",
+              textTransform: isCompiler && compilerLayout === "ieee" ? "uppercase" : "none",
+              textAlign: isCompiler && compilerLayout === "ieee" ? "center" : "left",
+            }}
+          >
             {line.substring(3)}
           </h2>
         )
@@ -405,14 +745,23 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         const checked = line.startsWith("- [x] ")
         return (
           <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: "10px", margin: "6px 0" }}>
-            <input 
-              type="checkbox" 
-              checked={checked} 
-              readOnly
-              className="editor-todo-checkbox" 
-            />
-            <span style={{ fontSize: "14px", textDecoration: checked ? "line-through" : "none", color: checked ? "var(--text-muted)" : "var(--text-secondary)" }}>
-              {line.substring(6)}
+            {!isCompiler && (
+              <input 
+                type="checkbox" 
+                checked={checked} 
+                readOnly
+                className="editor-todo-checkbox" 
+              />
+            )}
+            <span 
+              style={{ 
+                fontSize: "14px", 
+                textDecoration: checked && !isCompiler ? "line-through" : "none", 
+                color: isCompiler ? "#111" : checked ? "var(--text-muted)" : "var(--text-secondary)",
+                paddingLeft: isCompiler ? "12px" : "0"
+              }}
+            >
+              {isCompiler ? `\u2022 ${line.substring(6)}` : line.substring(6)}
             </span>
           </div>
         )
@@ -420,7 +769,16 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       // Bullet list
       if (line.startsWith("- ")) {
         return (
-          <li key={idx} style={{ fontSize: "14px", color: "var(--text-secondary)", margin: "4px 0", marginLeft: "16px" }}>
+          <li 
+            key={idx} 
+            style={{ 
+              fontSize: "14px", 
+              color: isCompiler ? "#111" : "var(--text-secondary)", 
+              margin: "4px 0", 
+              marginLeft: "16px",
+              listStyleType: isCompiler ? "disc" : "square"
+            }}
+          >
             {line.substring(2)}
           </li>
         )
@@ -433,7 +791,17 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       return line.trim() === "" ? (
         <div key={idx} style={{ height: "12px" }}></div>
       ) : (
-        <p key={idx} style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: "1.7", margin: "8px 0" }}>
+        <p 
+          key={idx} 
+          style={{ 
+            fontSize: isCompiler ? "14.5px" : "14px", 
+            color: isCompiler ? "#111" : "var(--text-secondary)", 
+            lineHeight: isCompiler && compilerLayout === "thesis" ? "1.9" : "1.7", 
+            margin: "8px 0",
+            textAlign: isCompiler ? "justify" : "left",
+            fontFamily: isCompiler ? '"Times New Roman", Times, Georgia, serif' : 'inherit'
+          }}
+        >
           {line}
         </p>
       )
@@ -445,7 +813,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
       
       {/* Editor Slate Header card */}
       <div className="glass-card" style={{ padding: "20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "70%" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px", width: "50%" }}>
           <input
             type="text"
             value={page.title}
@@ -471,7 +839,37 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         </div>
 
         {/* Edit mode switches */}
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          
+          {/* Voice dictation companion trigger button */}
+          <button
+            onClick={handleToggleDictation}
+            className={`btn-secondary ${isDictating ? "active" : ""}`}
+            style={{
+              padding: "8px 12px",
+              fontSize: "12px",
+              borderColor: isDictating ? "rgba(239, 68, 68, 0.4)" : "var(--border-muted)",
+              boxShadow: isDictating ? "0 0 10px rgba(239,68,68,0.2)" : "none",
+              color: isDictating ? "var(--accent-danger)" : "var(--text-primary)",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px"
+            }}
+            title={isDictating ? "Stop speech recognition dictation" : "Initiate live voice dictation"}
+          >
+            {isDictating ? (
+              <>
+                <MicOff size={13} style={{ animation: "pulse 1s infinite" }} />
+                <span>Stop Dictating</span>
+              </>
+            ) : (
+              <>
+                <Mic size={13} />
+                <span>Dictate Text</span>
+              </>
+            )}
+          </button>
+
           <div style={{ display: "flex", background: "rgba(255,255,255,0.02)", padding: "3px", borderRadius: "8px", border: "1px solid var(--border-muted)" }}>
             <button
               onClick={() => setEditMode("edit")}
@@ -540,7 +938,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             style={{ padding: "8px 12px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <Share2 size={12} />
-            <span>Share & Dispatch</span>
+            <span>Share</span>
           </button>
 
           <button
@@ -548,7 +946,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             className="btn-secondary"
             style={{ padding: "8px 12px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
-            <BookOpen size={12} />
+            <BookOpen size={12} style={{ color: "var(--accent-primary)" }} />
             <span>Scholar's Sanctum</span>
           </button>
 
@@ -558,7 +956,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             style={{ padding: "8px 14px", fontSize: "12px", display: "inline-flex", alignItems: "center", gap: "6px" }}
           >
             <Sparkles size={12} />
-            <span>Distill AI Refine</span>
+            <span>Refine</span>
           </button>
         </div>
       </div>
@@ -634,7 +1032,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
 
       {/* Editor Slate Status bar */}
       <div className="glass-card" style={{ padding: "10px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.3)" }}>
-        <div style={{ display: "flex", gap: "16px", color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
+        <div style={{ display: "flex", gap: "16px", color: "var(--text-muted)", fontSize: "11px", fontFamily: "var(--font-mono)", fontWeight: "600", alignItems: "center" }}>
           <span style={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <FileText size={12} />
             <span>{wordsCount} WORDS</span>
@@ -644,6 +1042,18 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             <Clock size={12} />
             <span>{readTime} MIN READ</span>
           </span>
+          
+          {/* Speech Equalizer Ripple bar animation */}
+          {isDictating && (
+            <div style={{ display: "flex", gap: "2.5px", alignItems: "flex-end", height: "10px", marginLeft: "14px" }}>
+              <span className="equalizer-bar" style={{ animationDelay: "0.1s" }} />
+              <span className="equalizer-bar" style={{ animationDelay: "0.3s" }} />
+              <span className="equalizer-bar" style={{ animationDelay: "0.5s" }} />
+              <span className="equalizer-bar" style={{ animationDelay: "0.2s" }} />
+              <span className="equalizer-bar" style={{ animationDelay: "0.4s" }} />
+              <span style={{ fontSize: "9px", fontFamily: "var(--font-mono)", color: "var(--accent-danger)", paddingLeft: "4px", alignSelf: "center", fontWeight: "700" }}>LISTENING LIVE</span>
+            </div>
+          )}
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)", fontWeight: "600" }}>
@@ -670,6 +1080,19 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
           </button>
         </div>
 
+        {/* Dispatch Progress Tracker */}
+        <div style={{ padding: "4px 0", display: "flex", flexDirection: "column", gap: "4px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "9px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", fontWeight: "bold" }}>
+            <span>PROGRESS TRACK:</span>
+            <span style={{ color: isDispatching ? "var(--accent-secondary)" : dispatchComplete ? "var(--accent-success)" : "var(--text-muted)" }}>
+              {isDispatching ? "IN-FLIGHT DISPATCH" : dispatchComplete ? "DELIVERED TO PUBLISHER" : "DRAFT QUEUED"}
+            </span>
+          </div>
+          <div style={{ height: "4px", background: "rgba(255,255,255,0.03)", borderRadius: "2px", overflow: "hidden", border: "1px solid var(--border-muted)" }}>
+            <div style={{ width: isDispatching ? "55%" : dispatchComplete ? "100%" : "15%", height: "100%", background: dispatchComplete ? "var(--accent-success)" : "var(--accent-primary)", transition: "width 1s cubic-bezier(0.16, 1, 0.3, 1)" }} />
+          </div>
+        </div>
+
         {/* Google Drive quick backup */}
         <div className="glass-card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "10px", background: "rgba(0,0,0,0.15)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -690,7 +1113,21 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
         </div>
 
         {/* Email Dispatch form */}
-        <form onSubmit={handleDispatchEmail} style={{ display: "flex", flexDirection: "column", gap: "14px", flex: 1 }}>
+        <form onSubmit={handleDispatchEmail} style={{ display: "flex", flexDirection: "column", gap: "14px", flex: 1, position: "relative" }}>
+          
+          {/* Cyberpunk Paperplane fly flight overlay */}
+          {triggerPlaneFly && (
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(10,8,20,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, borderRadius: "8px" }}>
+              <Send 
+                size={36} 
+                style={{ 
+                  color: "var(--accent-primary)", 
+                  animation: "flyOff 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards" 
+                }} 
+              />
+            </div>
+          )}
+
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <Mail size={14} style={{ color: "var(--accent-primary)" }} />
             <span style={{ fontSize: "12px", fontWeight: "650", color: "var(--text-primary)" }}>Email Document</span>
@@ -739,10 +1176,7 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
             style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}
           >
             {isDispatching ? (
-              <>
-                <Send size={13} className="dispatch-plane-fly" />
-                <span>Dispatching note...</span>
-              </>
+              <span>Dispatching note...</span>
             ) : dispatchComplete ? (
               <>
                 <Check size={13} style={{ color: "var(--accent-success)" }} />
@@ -775,117 +1209,350 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
           </button>
         </div>
 
-        {/* Prose Audit HUD */}
-        <div className="prose-analytics-card">
-          <div style={{ fontSize: "10.5px", fontWeight: "700", color: "var(--text-primary)", borderBottom: "1px solid var(--border-muted)", paddingBottom: "6px", fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}>
-            PROSE AUDIT HUD METRICS
-          </div>
-          <div className="prose-audit-metric-row">
-            <span className="prose-audit-label">EST. READING GRADE</span>
-            <span className="prose-audit-value">{calculateReadingLevel()}</span>
-          </div>
-          <div className="prose-audit-metric-row">
-            <span className="prose-audit-label">PASSIVE VOICE DETECTED</span>
-            <span className={`prose-audit-value ${scanPassiveVoice() > 3 ? "warning" : ""}`}>
-              {scanPassiveVoice()} PHRASES
-            </span>
-          </div>
-          <div className="prose-audit-metric-row">
-            <span className="prose-audit-label">PARAGRAPHS TOTAL</span>
-            <span className="prose-audit-value">{paragraphsCount} BLOCKS</span>
-          </div>
-          <div className="prose-audit-metric-row">
-            <span className="prose-audit-label">SENTENCES SCANNED</span>
-            <span className="prose-audit-value">{sentencesCount} CLAUSES</span>
-          </div>
+        {/* Tabs for Sanctum Drawer */}
+        <div style={{ display: "flex", gap: "4px", background: "rgba(0,0,0,0.3)", padding: "2px", borderRadius: "6px", border: "1px solid var(--border-muted)" }}>
+          <button
+            onClick={() => setSanctumTab("sources")}
+            className={`btn-secondary ${sanctumTab === "sources" ? "active" : ""}`}
+            style={{ flex: 1, padding: "6px", fontSize: "11px", border: "none", background: sanctumTab === "sources" ? "var(--text-primary)" : "transparent", color: sanctumTab === "sources" ? "var(--bg-primary)" : "var(--text-primary)" }}
+          >
+            Sources & Audits
+          </button>
+          <button
+            onClick={() => setSanctumTab("compiler")}
+            className={`btn-secondary ${sanctumTab === "compiler" ? "active" : ""}`}
+            style={{ flex: 1, padding: "6px", fontSize: "11px", border: "none", background: sanctumTab === "compiler" ? "var(--text-primary)" : "transparent", color: sanctumTab === "compiler" ? "var(--bg-primary)" : "var(--text-primary)" }}
+          >
+            TeX PDF Compiler
+          </button>
         </div>
 
-        {/* Citations List reference manager */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", flex: 1, overflowY: "auto", paddingRight: "2px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <span style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
-              BIBLIOGRAPHY SOURCES ({citations.length})
-            </span>
-            <button
-              type="button"
-              onClick={handleCompileBibliography}
-              className="action-pill-premium"
-              style={{ fontSize: "9.5px", padding: "2px 8px" }}
-              title="Compile all references as APA/IEEE bibliography at bottom of text"
-            >
-              Compile References
-            </button>
-          </div>
+        {sanctumTab === "sources" ? (
+          <>
+            {/* Prose Audit HUD */}
+            <div className="prose-analytics-card" style={{ marginTop: "4px" }}>
+              <div style={{ fontSize: "10.5px", fontWeight: "700", color: "var(--text-primary)", borderBottom: "1px solid var(--border-muted)", paddingBottom: "6px", fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}>
+                PROSE AUDIT HUD METRICS
+              </div>
+              <div className="prose-audit-metric-row">
+                <span className="prose-audit-label">EST. READING GRADE</span>
+                <span className="prose-audit-value">{calculateReadingLevel()}</span>
+              </div>
+              <div className="prose-audit-metric-row">
+                <span className="prose-audit-label">PASSIVE VOICE DETECTED</span>
+                <span className={`prose-audit-value ${scanPassiveVoice() > 3 ? "warning" : ""}`}>
+                  {scanPassiveVoice()} PHRASES
+                </span>
+              </div>
+              <div className="prose-audit-metric-row">
+                <span className="prose-audit-label">PARAGRAPHS TOTAL</span>
+                <span className="prose-audit-value">{paragraphsCount} BLOCKS</span>
+              </div>
+              <div className="prose-audit-metric-row">
+                <span className="prose-audit-label">SENTENCES SCANNED</span>
+                <span className="prose-audit-value">{sentencesCount} CLAUSES</span>
+              </div>
+            </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {citations.map(c => (
-              <div key={c.id} className="citation-row-item">
-                <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-primary)" }}>{c.title}</div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
-                  <span>{c.author} ({c.year})</span>
+            {/* Citations List reference manager */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px", flex: 1, overflowY: "auto", paddingRight: "2px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: "10.5px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
+                  BIBLIOGRAPHY SOURCES ({citations.length})
+                </span>
+                
+                {!appendixInjected ? (
                   <button
                     type="button"
-                    disabled={editMode !== "edit"}
-                    onClick={() => insertInlineCitation(c)}
+                    onClick={handleCompileBibliography}
                     className="action-pill-premium"
-                    style={{ fontSize: "9px", padding: "1px 6px" }}
-                    title="Insert inline citation at cursor position"
+                    style={{ fontSize: "9.5px", padding: "2px 8px" }}
+                    title="Compile all references as APA/IEEE bibliography at bottom of text"
                   >
-                    Insert inline
+                    Compile References
                   </button>
+                ) : (
+                  <span style={{ fontSize: "9.5px", color: "var(--accent-success)", fontFamily: "var(--font-mono)", fontWeight: "700" }}>COMPILED ✓</span>
+                )}
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {citations.map(c => (
+                  <div key={c.id} className="citation-row-item">
+                    <div style={{ fontSize: "12px", fontWeight: "600", color: "var(--text-primary)" }}>{c.title}</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>
+                      <span>{c.author} ({c.year})</span>
+                      <button
+                        type="button"
+                        disabled={editMode !== "edit"}
+                        onClick={() => insertInlineCitation(c)}
+                        className="action-pill-premium"
+                        style={{ fontSize: "9px", padding: "1px 6px" }}
+                        title="Insert inline citation at cursor position"
+                      >
+                        Insert inline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Add Source form */}
+            <form onSubmit={handleAddCitation} style={{ borderTop: "1px solid var(--border-muted)", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
+              <span style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
+                ADD CITATION SOURCE
+              </span>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "8px" }}>
+                <input
+                  type="text"
+                  value={newAuthor}
+                  onChange={(e) => setNewAuthor(e.target.value)}
+                  placeholder="e.g. Rawat, S."
+                  className="input-premium"
+                  required
+                  style={{ padding: "6px 8px", fontSize: "11.5px" }}
+                />
+                <input
+                  type="text"
+                  value={newYear}
+                  onChange={(e) => setNewYear(e.target.value)}
+                  placeholder="Year"
+                  className="input-premium"
+                  required
+                  style={{ padding: "6px 8px", fontSize: "11.5px" }}
+                />
+              </div>
+              <input
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Paper title"
+                className="input-premium"
+                required
+                style={{ padding: "6px 8px", fontSize: "11.5px" }}
+              />
+              <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "8px" }}>
+                <input
+                  type="text"
+                  value={newDoi}
+                  onChange={(e) => setNewDoi(e.target.value)}
+                  placeholder="DOI (e.g. 10.1109/tsc...)"
+                  className="input-premium"
+                  style={{ padding: "6px 8px", fontSize: "11.5px" }}
+                />
+                <button type="submit" className="btn-premium" style={{ padding: "6px", fontSize: "11.5px" }}>Add</button>
+              </div>
+            </form>
+          </>
+        ) : (
+          /* TeX Academic compiler tab */
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "10px", flex: 1 }}>
+            <span style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
+              AI DISSERTATION PDF COMPILER
+            </span>
+
+            <p style={{ fontSize: "11.5px", color: "var(--text-muted)", lineHeight: "1.5" }}>
+              Compile mathematical notation, citations, and abstracts into professional AI publications using high-end academic templates.
+            </p>
+
+            {/* Layout selector presets */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <span style={{ fontSize: "9.5px", color: "var(--text-secondary)", fontWeight: "bold" }}>CHOOSE PAPER TEMPLATE LAYOUT:</span>
+              
+              {[
+                { key: "arxiv", label: "NeurIPS AI Preprint", desc: "ArXiv-standard computer science serif outline layout." },
+                { key: "ieee", label: "IEEE Systems Journal", desc: "Two-column tight grid standard conference design." },
+                { key: "thesis", label: "PhD Thesis Standard", desc: "Wide binding margins, double-spaced formal review." }
+              ].map(opt => (
+                <button
+                  key={opt.key}
+                  onClick={() => setCompilerLayout(opt.key as CompilerLayout)}
+                  className="btn-secondary"
+                  style={{
+                    padding: "10px",
+                    textAlign: "left",
+                    borderRadius: "6px",
+                    border: compilerLayout === opt.key ? "1px solid var(--border-active)" : "1px solid var(--border-muted)",
+                    background: compilerLayout === opt.key ? "rgba(255,255,255,0.03)" : "transparent",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "2px"
+                  }}
+                >
+                  <span style={{ fontSize: "12px", fontWeight: "700", color: "#ffffff" }}>{opt.label}</span>
+                  <span style={{ fontSize: "9.5px", color: "var(--text-muted)" }}>{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => setIsCompilerOpen(true)}
+              className="btn-premium"
+              style={{ width: "100%", padding: "10px 14px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "8px", marginTop: "auto" }}
+            >
+              <Play size={13} fill="currentColor" />
+              <span>Run Compiler & Preview</span>
+            </button>
+          </div>
+        )}
+      </aside>
+
+      {/* Screen-Wide Academic Compiler splitscreen Preview Frame overlay */}
+      {isCompilerOpen && (
+        <div 
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "#0c0a18",
+            zIndex: 1000,
+            display: "grid",
+            gridTemplateColumns: "1fr 1.1fr",
+            animation: "fadeIn 0.3s forwards"
+          }}
+        >
+          {/* Left panel: raw code editor */}
+          <div style={{ display: "flex", flexDirection: "column", borderRight: "1px solid var(--border-muted)", height: "100%", overflow: "hidden" }}>
+            <div style={{ background: "rgba(0,0,0,0.3)", padding: "16px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-muted)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <Code size={16} style={{ color: "var(--accent-secondary)" }} />
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--font-mono)" }}>
+                  source_code.md
+                </span>
+              </div>
+              
+              <div style={{ display: "flex", gap: "10px" }}>
+                <div style={{ background: "rgba(255,255,255,0.02)", padding: "4px 8px", border: "1px solid var(--border-muted)", borderRadius: "4px", fontSize: "11px", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                  LaTeX & Math Parser: Active
                 </div>
               </div>
-            ))}
+            </div>
+            
+            <textarea
+              value={page.content}
+              onChange={(e) => onUpdatePage({ ...page, content: e.target.value })}
+              className="input-premium"
+              style={{
+                flex: 1,
+                border: "none",
+                background: "transparent",
+                color: "var(--text-secondary)",
+                padding: "24px",
+                fontSize: "13.5px",
+                fontFamily: "var(--font-mono)",
+                lineHeight: "1.7",
+                resize: "none",
+                outline: "none"
+              }}
+            />
+          </div>
+
+          {/* Right panel: compiled paper preview */}
+          <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "#f8f9fa" }}>
+            <div style={{ background: "#ffffff", borderBottom: "1px solid #e9ecef", padding: "14px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", zIndex: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <Printer size={16} style={{ color: "#4f46e5" }} />
+                <span style={{ fontSize: "13px", fontWeight: "700", color: "#1f2937", fontFamily: "var(--font-display)" }}>
+                  Academic Typeset Previewer ({compilerLayout.toUpperCase()})
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  onClick={handlePrintPDF}
+                  className="btn-premium"
+                  style={{ background: "#4f46e5", color: "#ffffff", padding: "6px 16px", fontSize: "12px", border: "none" }}
+                >
+                  Download Publication PDF
+                </button>
+                <button
+                  onClick={() => setIsCompilerOpen(false)}
+                  style={{ background: "#e5e7eb", color: "#374151", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}
+                >
+                  Close Compiler
+                </button>
+              </div>
+            </div>
+
+            {/* Compiled Typeset Sheet Page viewport */}
+            <div 
+              style={{ 
+                flex: 1, 
+                overflowY: "auto", 
+                padding: "2.5cm 2.2cm", 
+                background: "#ffffff",
+                boxShadow: "inset 0 0 20px rgba(0,0,0,0.06)",
+                display: "flex",
+                justifyContent: "center"
+              }}
+            >
+              <div 
+                id="academic-preview-sheet"
+                style={{
+                  width: "100%",
+                  maxWidth: "16.5cm",
+                  background: "#ffffff",
+                  color: "#000000",
+                  fontFamily: '"Times New Roman", Times, Georgia, serif',
+                  lineHeight: compilerLayout === "thesis" ? "1.9" : "1.65",
+                  fontSize: compilerLayout === "thesis" ? "12pt" : "10.5pt",
+                  textAlign: "justify",
+                  columnCount: compilerLayout === "ieee" ? 2 : 1,
+                  columnGap: compilerLayout === "ieee" ? "1cm" : "0"
+                }}
+              >
+                {/* Formal Thesis chapters styling if dissertation selected */}
+                {compilerLayout === "thesis" && (
+                  <div style={{ fontSize: "16pt", fontWeight: "bold", textAlign: "center", marginBottom: "2cm", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    CHAPTER I: FRAMEWORK SPECIFICATION
+                  </div>
+                )}
+
+                {/* Print Title Block */}
+                {compilerLayout !== "ieee" && (
+                  <div style={{ borderBottom: "0.5px solid #000", paddingBottom: "1.2cm", marginBottom: "1.5cm" }}>
+                    <h1 style={{ fontSize: "22pt", textAlign: "center", fontWeight: "bold", margin: "0 0 10px 0", color: "#000000" }}>
+                      {page.title.replace(/^[^\w]*/, "")}
+                    </h1>
+                    <div style={{ textAlign: "center", fontSize: "10pt", color: "#555555" }}>
+                      Seseeded AI research manuscript by the Distill Workspace Editor Hub
+                    </div>
+                  </div>
+                )}
+
+                {renderMarkdownPreview(page.content, true)}
+              </div>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Add Source form */}
-        <form onSubmit={handleAddCitation} style={{ borderTop: "1px solid var(--border-muted)", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-          <span style={{ fontSize: "10px", color: "var(--text-secondary)", fontWeight: "700", fontFamily: "var(--font-mono)" }}>
-            ADD CITATION SOURCE
-          </span>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "8px" }}>
-            <input
-              type="text"
-              value={newAuthor}
-              onChange={(e) => setNewAuthor(e.target.value)}
-              placeholder="e.g. Rawat, S."
-              className="input-premium"
-              required
-              style={{ padding: "6px 8px", fontSize: "11.5px" }}
-            />
-            <input
-              type="text"
-              value={newYear}
-              onChange={(e) => setNewYear(e.target.value)}
-              placeholder="Year"
-              className="input-premium"
-              required
-              style={{ padding: "6px 8px", fontSize: "11.5px" }}
-            />
-          </div>
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Paper title"
-            className="input-premium"
-            required
-            style={{ padding: "6px 8px", fontSize: "11.5px" }}
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: "8px" }}>
-            <input
-              type="text"
-              value={newDoi}
-              onChange={(e) => setNewDoi(e.target.value)}
-              placeholder="DOI (e.g. 10.1109/tsc...)"
-              className="input-premium"
-              style={{ padding: "6px 8px", fontSize: "11.5px" }}
-            />
-            <button type="submit" className="btn-premium" style={{ padding: "6px", fontSize: "11.5px" }}>Add</button>
-          </div>
-        </form>
-      </aside>
+      {/* Embedded inline styles for speech visualizers */}
+      <style>{`
+        .equalizer-bar {
+          display: inline-block;
+          width: 2px;
+          height: 100%;
+          background-color: var(--accent-danger, #ef4444);
+          animation: bounceEqualizer 0.8s ease-in-out infinite alternate;
+          border-radius: 1px;
+        }
+        @keyframes bounceEqualizer {
+          0% { height: 2px; }
+          100% { height: 10px; }
+        }
+        @keyframes flyOff {
+          0% { transform: translate(0, 0) scale(1); opacity: 1; }
+          40% { transform: translate(40px, -40px) scale(0.85); opacity: 0.9; }
+          100% { transform: translate(400px, -400px) scale(0.2); opacity: 0; }
+        }
+        .dispatch-plane-fly {
+          animation: pulse 1s infinite alternate;
+        }
+      `}</style>
     </div>
   )
 }
