@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react"
 import { Sparkles, Scale, CheckCircle2, XCircle, Clock, HelpCircle, RefreshCw } from "lucide-react"
-import { executePrompt } from "../utils/ai"
+import { executePrompt, APIKeys } from "../utils/ai"
 
 interface DecisionUnpackerProps {
   provider: string
   model: string
-  apiKeys: {
-    openai: string
-    anthropic: string
-    gemini: string
-  }
+  apiKeys: APIKeys
 }
 
 interface DecisionAnalysis {

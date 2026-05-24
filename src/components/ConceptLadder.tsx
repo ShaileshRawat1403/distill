@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react"
 import { Sparkles, Brain, Check, RefreshCw, Layers, Volume2, VolumeX } from "lucide-react"
-import { executePrompt } from "../utils/ai"
+import { executePrompt, APIKeys } from "../utils/ai"
 
 interface ConceptLadderProps {
   provider: string
   model: string
-  apiKeys: {
-    openai: string
-    anthropic: string
-    gemini: string
-  }
+  apiKeys: APIKeys
 }
 
 interface LadderSteps {

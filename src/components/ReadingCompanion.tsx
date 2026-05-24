@@ -1,15 +1,11 @@
 import { useState, useEffect } from "react"
 import { BookOpen, Check, Copy, FileText, Compass, ListCollapse, RefreshCw, HelpCircle, Download } from "lucide-react"
-import { executePrompt } from "../utils/ai"
+import { executePrompt, APIKeys } from "../utils/ai"
 
 interface ReadingCompanionProps {
   provider: string
   model: string
-  apiKeys: {
-    openai: string
-    anthropic: string
-    gemini: string
-  }
+  apiKeys: APIKeys
 }
 
 interface ReadingAnalysis {

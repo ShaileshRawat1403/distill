@@ -1,15 +1,11 @@
 import { useState } from "react"
 import { Sparkles, Copy, Check, CornerDownRight, RotateCcw, Feather, BookOpen, Smile, Zap, List } from "lucide-react"
-import { executePrompt } from "../utils/ai"
+import { executePrompt, APIKeys } from "../utils/ai"
 
 interface RewriteRoomProps {
   provider: string
   model: string
-  apiKeys: {
-    openai: string
-    anthropic: string
-    gemini: string
-  }
+  apiKeys: APIKeys
 }
 
 type OutputViewMode = "output" | "diff"
