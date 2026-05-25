@@ -1,10 +1,13 @@
 import { useState, useRef, useEffect } from "react"
 import { Sparkles, Edit3, Eye, FileText, Clock, HelpCircle, ArrowUpRight, Heading1, Heading2, ListTodo, Code, Calendar, Copy, Check, Download, BarChart2, Mail, Share2, CloudLightning, Send, X, BookOpen, Mic, MicOff, Printer, Play } from "lucide-react"
 import { Page } from "../App"
+import { parseWikilinks, computeLinks, buildTitleIndex, resolveTitle } from "../utils/knowledgeGraph"
+import RelatedThoughts from "./RelatedThoughts"
 
 interface DocumentEditorProps {
   page: Page
   pages: Page[]
+  workspace?: string
   onUpdatePage: (updatedPage: Page) => void
   provider: string
   model: string
@@ -14,6 +17,7 @@ interface DocumentEditorProps {
     gemini: string
   }
   onTriggerAI: (tool: "rewrite" | "ladder" | "decision" | "reading") => void
+  onNavigate?: (id: string) => void
 }
 
 type EditMode = "edit" | "preview"
@@ -27,11 +31,16 @@ interface SlashOption {
   template: string
 }
 
-export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI }: DocumentEditorProps) {
+export default function DocumentEditor({ page, pages, workspace, onUpdatePage, onTriggerAI, onNavigate }: DocumentEditorProps) {
   const [editMode, setEditMode] = useState<EditMode>("edit")
   const [showSlashMenu, setShowSlashMenu] = useState(false)
   const [slashSearch, setSlashSearch] = useState("")
   const [menuIndex, setMenuIndex] = useState(0)
+
+  // [[wikilink]] autocomplete state
+  const [showLinkMenu, setShowLinkMenu] = useState(false)
+  const [linkSearch, setLinkSearch] = useState("")
+  const [linkMenuIndex, setLinkMenuIndex] = useState(0)
   
   const [copiedRaw, setCopiedRaw] = useState(false)
   
@@ -468,6 +477,49 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
     } else {
       setShowSlashMenu(false)
     }
+
+    // [[wikilink]] autocomplete: open while the cursor sits inside an unclosed [[…
+    const openIdx = beforeCursor.lastIndexOf("[[")
+    const closeIdx = beforeCursor.lastIndexOf("]]")
+    if (openIdx !== -1 && openIdx > closeIdx) {
+      const query = beforeCursor.substring(openIdx + 2)
+      // Bail if the user has already typed a newline (links are single-line)
+      if (!query.includes("\n")) {
+        setShowLinkMenu(true)
+        setLinkSearch(query.toLowerCase())
+        setLinkMenuIndex(0)
+        return
+      }
+    }
+    setShowLinkMenu(false)
+  }
+
+  // Pages that match the current [[query, excluding the page itself.
+  const linkCandidates = pages
+    .filter((p) => p.id !== page.id && (p.title || "").toLowerCase().includes(linkSearch))
+    .slice(0, 6)
+
+  // Replace the active "[[query" with a finished "[[Title]]".
+  const insertWikilink = (title: string) => {
+    if (!textareaRef.current) return
+    const text = page.content
+    const cursorPosition = textareaRef.current.selectionStart
+    const beforeCursor = text.substring(0, cursorPosition)
+    const openIdx = beforeCursor.lastIndexOf("[[")
+    if (openIdx === -1) return
+
+    const insertion = `[[${title}]]`
+    const newContent = text.substring(0, openIdx) + insertion + text.substring(cursorPosition)
+    onUpdatePage({ ...page, content: newContent })
+    setShowLinkMenu(false)
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        const newCursor = openIdx + insertion.length
+        textareaRef.current.setSelectionRange(newCursor, newCursor)
+      }
+    }, 50)
   }
 
   // Handle Slash menu command execution
@@ -506,6 +558,25 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
 
   // Handle key listeners for navigation in popup
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showLinkMenu && linkCandidates.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setLinkMenuIndex((prev) => (prev + 1) % linkCandidates.length)
+        return
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setLinkMenuIndex((prev) => (prev - 1 + linkCandidates.length) % linkCandidates.length)
+        return
+      } else if (e.key === "Enter") {
+        e.preventDefault()
+        insertWikilink(linkCandidates[linkMenuIndex].title)
+        return
+      } else if (e.key === "Escape") {
+        e.preventDefault()
+        setShowLinkMenu(false)
+        return
+      }
+    }
     if (showSlashMenu) {
       const filtered = slashOptions.filter(opt => opt.label.toLowerCase().includes(slashSearch))
       if (e.key === "ArrowDown") {
@@ -533,6 +604,19 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
   const wordsCount = page.content.trim() ? page.content.trim().split(/\s+/).length : 0
   const charCount = page.content.length
   const readTime = Math.max(1, Math.round(wordsCount / 200))
+
+  // Knowledge-graph connections for this page: outgoing [[links]] + backlinks.
+  const titleIndex = buildTitleIndex(pages)
+  const outgoingLinks = parseWikilinks(page.content)
+    .map((title) => {
+      const id = resolveTitle(title, titleIndex)
+      return id ? pages.find((p) => p.id === id) : null
+    })
+    .filter((p): p is Page => !!p && p.id !== page.id)
+  const backlinkIds = computeLinks(pages).backlinks.get(page.id) ?? []
+  const backlinkPages = backlinkIds
+    .map((id) => pages.find((p) => p.id === id))
+    .filter((p): p is Page => !!p)
 
   // Custom client Markdown parser compiling visual representations
   const renderMarkdownPreview = (text: string, isCompiler: boolean = false) => {
@@ -1016,6 +1100,28 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
                 ))}
               </div>
             )}
+
+            {/* [[wikilink]] autocomplete popover */}
+            {showLinkMenu && linkCandidates.length > 0 && (
+              <div className="slash-popover" style={{ left: "24px", bottom: "32px" }}>
+                <div style={{ fontSize: "9px", color: "var(--text-muted)", padding: "4px 8px", fontWeight: "700", borderBottom: "1px solid var(--border-muted)", marginBottom: "4px" }}>
+                  LINK TO A PAGE
+                </div>
+                {linkCandidates.map((p, i) => (
+                  <button
+                    key={p.id}
+                    onClick={() => insertWikilink(p.title)}
+                    className={`slash-item ${linkMenuIndex === i ? "selected" : ""}`}
+                  >
+                    <BookOpen size={14} style={{ color: "var(--accent-secondary)" }} />
+                    <div style={{ display: "flex", flexDirection: "column" }}>
+                      <span>{p.title || "Untitled"}</span>
+                      <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>{p.type}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           /* Preview Mode viewport compiles standard blocks representation */
@@ -1029,6 +1135,49 @@ export default function DocumentEditor({ page, pages, onUpdatePage, onTriggerAI 
           </div>
         )}
       </div>
+
+      {/* Knowledge graph connections: outgoing [[links]] and backlinks */}
+      {(outgoingLinks.length > 0 || backlinkPages.length > 0) && (
+        <div className="glass-card" style={{ padding: "12px 18px", display: "flex", flexDirection: "column", gap: "10px", background: "rgba(0,0,0,0.2)" }}>
+          {outgoingLinks.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "10px", fontWeight: "700", color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>LINKS →</span>
+              {outgoingLinks.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onNavigate?.(p.id)}
+                  className="badge"
+                  style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", border: "1px solid var(--border-muted)", background: "rgba(168, 85, 247, 0.12)", color: "var(--text-secondary)", padding: "3px 9px", borderRadius: "999px", fontSize: "11px" }}
+                >
+                  <ArrowUpRight size={11} style={{ color: "var(--accent-secondary)" }} />
+                  {p.title || "Untitled"}
+                </button>
+              ))}
+            </div>
+          )}
+          {backlinkPages.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+              <span style={{ fontSize: "10px", fontWeight: "700", color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>← BACKLINKS</span>
+              {backlinkPages.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onNavigate?.(p.id)}
+                  className="badge"
+                  style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "4px", border: "1px solid var(--border-muted)", background: "rgba(99, 102, 241, 0.12)", color: "var(--text-secondary)", padding: "3px 9px", borderRadius: "999px", fontSize: "11px" }}
+                >
+                  <BookOpen size={11} style={{ color: "var(--accent-primary)" }} />
+                  {p.title || "Untitled"}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Resurfaced related thoughts (semantic) */}
+      {workspace && (
+        <RelatedThoughts page={page} pages={pages} workspace={workspace} onNavigate={onNavigate} />
+      )}
 
       {/* Editor Slate Status bar */}
       <div className="glass-card" style={{ padding: "10px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(0,0,0,0.3)" }}>

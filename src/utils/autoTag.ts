@@ -11,6 +11,7 @@
  */
 
 import { executePrompt, type APIKeys } from "./ai"
+import { extractKeyphrases, normalizeTags } from "./localTagger"
 
 const SYSTEM_PROMPT = `You are a concise content tagger. Given a document title and content, output 2-3 short semantic tags that describe the main topic, domain, or intent.
 
@@ -38,11 +39,16 @@ export async function suggestTags(
     (provider === "anthropic" && !!apiKeys.anthropic) ||
     provider === "webllm"
 
-  if (!hasProvider) return existingTags
-
   // Guard: too little content to tag
   const text = `${title} ${content}`.trim()
   if (text.length < 40) return existingTags
+
+  // No AI provider? Fall back to the offline extractive tagger so a thought is
+  // never left untagged. This is the floor; the LLM path below is the upgrade.
+  if (!hasProvider) {
+    const local = extractKeyphrases(title, content)
+    return normalizeTags([...existingTags, ...local])
+  }
 
   try {
     const raw = await executePrompt({
@@ -64,10 +70,11 @@ export async function suggestTags(
       .map((t) => t.toLowerCase().trim())
       .filter((t) => !existingTags.map((e) => e.toLowerCase()).includes(t))
 
-    // Merge: existing first, then new suggestions, cap at 5
-    return [...existingTags, ...newTags].slice(0, 5)
+    // Merge existing + LLM suggestions, then canonicalise the vocabulary.
+    return normalizeTags([...existingTags, ...newTags])
   } catch {
-    // JSON parse failure or API error — return existing tags unchanged
-    return existingTags
+    // API/parse failure — degrade to the offline tagger rather than giving up.
+    const local = extractKeyphrases(title, content)
+    return normalizeTags([...existingTags, ...local])
   }
 }

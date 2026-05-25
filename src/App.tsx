@@ -26,7 +26,8 @@ import {
   ListTodo,
   Calendar,
   CloudLightning,
-  Orbit
+  Orbit,
+  Zap
 } from "lucide-react"
 
 // Import Components
@@ -47,6 +48,7 @@ import WebLLMManager from "./components/WebLLMManager"
 import SearchModal from "./components/SearchModal"
 import MoodBoard from "./components/MoodBoard"
 import AEyeAssistant from "./components/AEyeAssistant"
+import QuickCapture from "./components/QuickCapture"
 import {
   loadPages,
   upsertPage,
@@ -133,6 +135,7 @@ export default function App() {
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState<boolean>(false)
   const [pages, setPages] = useState<Page[]>([])
   const [activePageId, setActivePageId] = useState<string>("")
+  const [isQuickCaptureOpen, setIsQuickCaptureOpen] = useState<boolean>(false)
 
   // Google Drive Integration State
   const [driveConnected, setDriveConnected] = useState<boolean>(safeLocalStorage.getItem("distill_drive_connected") === "true")
@@ -517,6 +520,55 @@ export default function App() {
       }, 4000)
     }
   }
+
+  // Quick capture — turn a raw thought into a fully-wired inbox note.
+  // First line becomes the title; the note is created, persisted, embedded,
+  // and auto-tagged through the same pipeline as any other page.
+  const handleQuickCapture = useCallback((text: string) => {
+    const firstLine = text.split("\n")[0].trim()
+    const title = firstLine.length > 60 ? firstLine.slice(0, 57) + "…" : firstLine || "Captured thought"
+
+    const newPage: Page = {
+      id: Math.random().toString(36).substring(2, 9),
+      title,
+      content: text,
+      type: "note",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      tags: ["inbox"],
+    }
+
+    setPages(prev => [newPage, ...prev])
+    setActivePageId(newPage.id)
+    upsertPage(workspace, newPage).catch((err) => {
+      logSystemMessage("ERROR", `Failed to persist captured thought: ${err?.message}`)
+    })
+    syncPageEmbedding(workspace, newPage).catch(() => {/* non-critical */})
+    logSystemMessage("DATABASE", `Captured "${title}" → Inbox`)
+
+    if (newPage.content.length > 40) {
+      suggestTags(
+        newPage.title, newPage.content, newPage.tags ?? [],
+        provider, model, apiKeys, isOllamaOnline
+      ).then((updatedTags) => {
+        const tagged = { ...newPage, tags: updatedTags }
+        setPages(prev => prev.map(p => p.id === tagged.id ? tagged : p))
+        upsertPage(workspace, tagged).catch(() => {/* silent */})
+      }).catch(() => {/* silent */})
+    }
+  }, [workspace, provider, model, apiKeys, isOllamaOnline, logSystemMessage])
+
+  // Global shortcut: ⌘/Ctrl+Shift+K opens Quick Capture from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault()
+        setIsQuickCaptureOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
 
   // Delete page — targeted row delete, no full rewrite
   const handleDeletePage = (id: string, e: React.MouseEvent) => {
@@ -1520,14 +1572,16 @@ export default function App() {
             ) : activePage.type === "moodboard" ? (
               <MoodBoard page={activePage} onUpdatePage={handleUpdatePage} />
             ) : (
-              <DocumentEditor 
-                page={activePage} 
+              <DocumentEditor
+                page={activePage}
                 pages={pages}
-                onUpdatePage={handleUpdatePage} 
+                workspace={workspace}
+                onUpdatePage={handleUpdatePage}
                 provider={provider} 
                 model={model} 
                 apiKeys={apiKeys}
                 onTriggerAI={triggerSidecar}
+                onNavigate={setActivePageId}
               />
             )
           ) : (
@@ -1674,6 +1728,21 @@ export default function App() {
         provider={provider}
         model={model}
         apiKeys={apiKeys}
+      />
+
+      {/* Frictionless capture: floating trigger + modal (⌘/Ctrl+Shift+K) */}
+      <button
+        className="quick-capture-fab"
+        onClick={() => setIsQuickCaptureOpen(true)}
+        title="Quick Capture (⌘⇧K)"
+        aria-label="Quick Capture"
+      >
+        <Zap size={20} />
+      </button>
+      <QuickCapture
+        open={isQuickCaptureOpen}
+        onClose={() => setIsQuickCaptureOpen(false)}
+        onCapture={handleQuickCapture}
       />
     </div>
   )
