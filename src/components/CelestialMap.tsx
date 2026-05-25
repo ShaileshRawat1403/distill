@@ -172,7 +172,9 @@ export default function CelestialMap({ pages, workspace, onNavigate }: Celestial
             const dx = targetNode.x - sourceNode.x
             const dy = targetNode.y - sourceNode.y
             const dist = Math.sqrt(dx * dx + dy * dy) || 0.1
-            const idealDist = 130
+            // Stronger connections sit closer: high-similarity / linked notes pull
+            // into tight clusters, weak (tag) edges rest farther apart.
+            const idealDist = 175 - link.weight * 95
             const force = (dist - idealDist) * kSpring * link.weight
 
             const fx = (dx / dist) * force

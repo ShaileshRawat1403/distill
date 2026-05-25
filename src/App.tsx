@@ -49,6 +49,7 @@ import SearchModal from "./components/SearchModal"
 import MoodBoard from "./components/MoodBoard"
 import AEyeAssistant from "./components/AEyeAssistant"
 import QuickCapture from "./components/QuickCapture"
+import { checkDaxHealth, listDaxModels } from "./utils/daxBridge"
 import {
   loadPages,
   upsertPage,
@@ -64,16 +65,24 @@ import { syncPageEmbedding, removePageEmbedding, syncEmbeddings } from "./utils/
 import { suggestTags } from "./utils/autoTag"
 
 // Page interfaces
+// SDLC lifecycle statuses (back-compat: old todo/progress/done still valid)
+export type KanbanStatus = "backlog" | "todo" | "progress" | "review" | "done"
+export type KanbanPriority = "low" | "medium" | "high" | "critical"
+export type KanbanType = "story" | "task" | "bug" | "epic" | "spike"
+
 export interface KanbanTask {
   id: string
   title: string
-  status: "todo" | "progress" | "done"
-  priority: "low" | "medium" | "high"
+  status: KanbanStatus
+  priority: KanbanPriority
   createdAt: number
   description?: string
   dueDate?: number  // unix timestamp ms
-  label?: "research" | "drafting" | "review" | "revision"
+  label?: string    // SDLC component: feature, infra, design, docs, test, chore…
   assignee?: "me" | "ai" | "tm"
+  type?: KanbanType // issue type
+  points?: number   // story-point estimate
+  epic?: string     // epic / initiative grouping
 }
 
 export interface SpreadsheetRow {
@@ -192,16 +201,22 @@ export default function App() {
   const [model, setModel] = useState<string>("")
   const [ollamaModels, setOllamaModels] = useState<string[]>([])
 
+  // DAX/Rook bridge: discovered subscription models ("providerID/modelID") + connection state
+  const [daxModels, setDaxModels] = useState<{ id: string; name: string }[]>([])
+  const [daxStatus, setDaxStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle")
+  const [daxStatusMsg, setDaxStatusMsg] = useState<string>("")
+
   // Active models list based on provider
   const getActiveModels = useCallback((): string[] => {
     if (provider === "ollama") return ollamaModels
+    if (provider === "dax") return daxModels.map((m) => m.id)
     if (provider === "openai") return ["gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
     if (provider === "gemini") return ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-1.0-pro"]
     if (provider === "anthropic") return ["claude-3-5-sonnet", "claude-3-opus", "claude-3-haiku"]
     if (provider === "groq") return ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it"]
     if (provider === "webllm") return ["Phi-3.5-mini-instruct-q4f16_1-MLC", "Llama-3.2-3B-Instruct-q4f16_1-MLC", "gemma-2-2b-it-q4f16_1-MLC", "Qwen2.5-1.5B-Instruct-q4f16_1-MLC"]
     return []
-  }, [provider, ollamaModels])
+  }, [provider, ollamaModels, daxModels])
 
   const activeModels: string[] = getActiveModels()
 
@@ -220,6 +235,8 @@ export default function App() {
       defaultModel = "llama-3.3-70b-versatile"
     } else if (newProvider === "webllm") {
       defaultModel = "Phi-3.5-mini-instruct-q4f16_1-MLC"
+    } else if (newProvider === "dax") {
+      defaultModel = daxModels[0]?.id || ""
     }
     setModel(defaultModel)
     logSystemMessage("SYSTEM", `Switched AI provider to ${newProvider.toUpperCase()} (Default Model: ${defaultModel})`)
@@ -232,6 +249,8 @@ export default function App() {
     gemini: safeLocalStorage.getItem("distill_api_key_gemini") || "",
     groq: safeLocalStorage.getItem("distill_api_key_groq") || "",
     useSubscription: safeLocalStorage.getItem("distill_use_subscription") === "true",
+    daxUrl: safeLocalStorage.getItem("distill_dax_url") || "http://127.0.0.1:4096",
+    daxPassword: safeLocalStorage.getItem("distill_dax_password") || "",
   })
 
   // System audit logger (defined early so bootstrap can use it)
@@ -558,6 +577,34 @@ export default function App() {
     }
   }, [workspace, provider, model, apiKeys, isOllamaOnline, logSystemMessage])
 
+  // Connect to the local DAX/Rook bridge: verify health, then discover the
+  // subscription-authed providers/models the server exposes.
+  const handleConnectDax = useCallback(async () => {
+    setDaxStatus("connecting")
+    setDaxStatusMsg("")
+    const cfg = { url: apiKeys.daxUrl, password: apiKeys.daxPassword }
+    try {
+      const health = await checkDaxHealth(cfg)
+      const { models } = await listDaxModels(cfg)
+      if (models.length === 0) throw new Error("Connected, but no authed providers found. Run `dax auth login` first.")
+      const list = models.map((m) => ({ id: `${m.providerID}/${m.modelID}`, name: m.name }))
+      setDaxModels(list)
+      setDaxStatus("connected")
+      setDaxStatusMsg(`Connected to DAX ${health.version} · ${list.length} models`)
+      setProvider("dax")
+      setModel(list[0].id)
+      safeLocalStorage.setItem("distill_dax_url", apiKeys.daxUrl)
+      safeLocalStorage.setItem("distill_dax_password", apiKeys.daxPassword)
+      logSystemMessage("SYSTEM", `DAX/Rook bridge connected (${list.length} subscription models)`)
+    } catch (e) {
+      const msg = (e as Error).message
+      setDaxStatus("error")
+      setDaxStatusMsg(msg)
+      setDaxModels([])
+      logSystemMessage("ERROR", `DAX bridge: ${msg}`)
+    }
+  }, [apiKeys.daxUrl, apiKeys.daxPassword, logSystemMessage])
+
   // Global shortcut: ⌘/Ctrl+Shift+K opens Quick Capture from anywhere.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -704,6 +751,20 @@ export default function App() {
 
   // Grab active page
   const activePage = pages.find(p => p.id === activePageId)
+
+  // Inbox: captured/untriaged thoughts carry the "inbox" tag.
+  const inboxPages = pages.filter(p => (p.tags ?? []).includes("inbox"))
+  const inboxCount = inboxPages.length
+
+  // Triage a captured thought: drop the "inbox" tag so it leaves the inbox.
+  const handleTriagePage = (id: string) => {
+    const target = pages.find(p => p.id === id)
+    if (!target) return
+    const triaged = { ...target, tags: (target.tags ?? []).filter(t => t !== "inbox"), updatedAt: Date.now() }
+    setPages(prev => prev.map(p => p.id === id ? triaged : p))
+    upsertPage(workspace, triaged).catch(() => {/* silent */})
+    logSystemMessage("SYSTEM", `Triaged "${triaged.title}" out of Inbox`)
+  }
 
   // Floating AI sidecar triggers
   const triggerSidecar = (tool: "rewrite" | "ladder" | "decision" | "reading" | "surgeon") => {
@@ -924,6 +985,26 @@ export default function App() {
                 <Orbit size={14} style={{ color: "var(--accent-secondary)" }} />
                 <span>Celestial Thought-Graph</span>
               </button>
+
+              <button
+                onClick={() => {
+                  if (document.startViewTransition) {
+                    document.startViewTransition(() => setActivePageId("inbox"))
+                  } else {
+                    setActivePageId("inbox")
+                  }
+                }}
+                className={`sidebar-page-item ${activePageId === "inbox" ? "active" : ""}`}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                <Zap size={14} style={{ color: "var(--accent-warning)" }} />
+                <span>Inbox</span>
+                {inboxCount > 0 && (
+                  <span style={{ marginLeft: "auto", fontSize: "10px", fontWeight: 700, fontFamily: "var(--font-mono)", background: "var(--accent-warning)", color: "var(--bg-primary)", borderRadius: "999px", padding: "1px 7px" }}>
+                    {inboxCount}
+                  </span>
+                )}
+              </button>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px", alignItems: "center", margin: "0 auto" }}>
@@ -1112,6 +1193,7 @@ export default function App() {
                 style={{ width: "165px", padding: "8px 12px", fontSize: "12.5px" }}
               >
                 <option value="ollama">Ollama (Local)</option>
+                <option value="dax">DAX / Rook (Subscription)</option>
                 <option value="openai">OpenAI (Cloud)</option>
                 <option value="gemini">Gemini (Cloud)</option>
                 <option value="anthropic">Anthropic (Cloud)</option>
@@ -1132,10 +1214,12 @@ export default function App() {
               >
                 {activeModels.length > 0 ? (
                   activeModels.map((m) => (
-                    <option key={m} value={m}>{m}</option>
+                    <option key={m} value={m}>
+                      {provider === "dax" ? (daxModels.find((d) => d.id === m)?.name ?? m) : m}
+                    </option>
                   ))
                 ) : (
-                  <option value="">No models available</option>
+                  <option value="">{provider === "dax" ? "Connect bridge in Settings" : "No models available"}</option>
                 )}
               </select>
             </div>
@@ -1231,6 +1315,48 @@ export default function App() {
               ollamaModels={ollamaModels}
               logSystemMessage={logSystemMessage}
             />
+          ) : activePageId === "inbox" ? (
+            /* Inbox: untriaged captured thoughts */
+            <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "18px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "14px" }}>
+                <Zap size={20} style={{ color: "var(--accent-warning)" }} />
+                <h2 style={{ fontSize: "18px", fontWeight: 700, fontFamily: "var(--font-display)", margin: 0 }}>Inbox</h2>
+                <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  {inboxCount} untriaged {inboxCount === 1 ? "thought" : "thoughts"}
+                </span>
+              </div>
+
+              {inboxPages.length === 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "50px 20px", color: "var(--text-muted)", gap: "10px" }}>
+                  <Zap size={26} style={{ opacity: 0.4 }} />
+                  <span style={{ fontSize: "13px" }}>Inbox zero. Capture a thought with ⌘⇧K — it lands here.</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                  {inboxPages.map((p) => (
+                    <div key={p.id} className="inbox-item">
+                      <button
+                        onClick={() => setActivePageId(p.id)}
+                        style={{ flex: 1, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 }}
+                      >
+                        <span style={{ fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title || "Untitled"}</span>
+                        <span style={{ fontSize: "12px", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {p.content.replace(/\s+/g, " ").slice(0, 110) || "—"}
+                        </span>
+                        {(p.tags ?? []).filter(t => t !== "inbox").length > 0 && (
+                          <span style={{ fontSize: "10.5px", color: "var(--accent-secondary)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
+                            {(p.tags ?? []).filter(t => t !== "inbox").map(t => `#${t}`).join(" ")}
+                          </span>
+                        )}
+                      </button>
+                      <button onClick={() => handleTriagePage(p.id)} className="btn-secondary" style={{ padding: "6px 12px", fontSize: "11.5px", flexShrink: 0 }}>
+                        Triage
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : activePageId === "map" ? (
             <CelestialMap
               pages={pages}
@@ -1296,46 +1422,58 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Premium AI Subscription Sync */}
+                {/* DAX / Rook Subscription Bridge (real local gateway) */}
                 <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "16px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       <Sparkles size={18} style={{ color: "var(--accent-primary)" }} />
                       <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>
-                        Rook & Dax Cloud Subscription
+                        DAX / Rook Subscription Bridge
                       </h3>
                     </div>
-                    {apiKeys.useSubscription && (
-                      <span className="pulse-dot" style={{ backgroundColor: "var(--accent-success)", boxShadow: "0 0 10px var(--accent-success)" }} title="Active secure subscription tunnel"></span>
+                    {daxStatus === "connected" && (
+                      <span className="pulse-dot" style={{ backgroundColor: "var(--accent-success)", boxShadow: "0 0 10px var(--accent-success)" }} title="Bridge connected"></span>
                     )}
                   </div>
 
                   <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", lineHeight: "1.6" }}>
-                    Enable this option if you have an active **ChatGPT Plus** or **Gemini Advanced** subscription synced via Rook/Dax secure workspaces. This tunnels requests through our shared premium cloud gateway—**no individual API keys needed!**
+                    Use your <strong>ChatGPT Plus</strong> / <strong>Gemini Advanced</strong> / <strong>Claude</strong> subscription with no API keys — Distill routes through a local DAX (or Rook) server that holds your sign-in. Run <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent-secondary)" }}>dax auth login</code> then <code style={{ fontFamily: "var(--font-mono)", color: "var(--accent-secondary)" }}>dax serve --port 4096</code>, then connect below.
                   </p>
 
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255, 255, 255, 0.015)", padding: "12px 18px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-muted)" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                      <span style={{ fontSize: "12px", color: "var(--text-primary)", fontWeight: "700" }}>
-                        {apiKeys.useSubscription ? "🟢 SUBSCRIPTION TUNNEL ACTIVE" : "⚪ SUBSCRIPTION INACTIVE"}
-                      </span>
-                      <span style={{ fontSize: "10.5px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                        ROOK/DAX CLOUD HANDSHAKE
-                      </span>
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: "1 1 240px" }}>
+                      <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Server URL</label>
+                      <input
+                        type="text"
+                        value={apiKeys.daxUrl}
+                        placeholder="http://127.0.0.1:4096"
+                        onChange={(e) => setApiKeys({ ...apiKeys, daxUrl: e.target.value })}
+                        className="input-premium"
+                      />
                     </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", flex: "1 1 160px" }}>
+                      <label style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Server Password (optional)</label>
+                      <input
+                        type="password"
+                        value={apiKeys.daxPassword}
+                        placeholder="DAX_SERVER_PASSWORD"
+                        onChange={(e) => setApiKeys({ ...apiKeys, daxPassword: e.target.value })}
+                        className="input-premium"
+                      />
+                    </div>
+                  </div>
 
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+                    <span style={{ fontSize: "11.5px", fontFamily: "var(--font-mono)", color: daxStatus === "error" ? "var(--accent-danger)" : daxStatus === "connected" ? "var(--accent-success)" : "var(--text-muted)" }}>
+                      {daxStatus === "connecting" ? "Connecting…" : daxStatusMsg || "Not connected"}
+                    </span>
                     <button
-                      onClick={() => {
-                        const nextVal = !apiKeys.useSubscription;
-                        const updated = { ...apiKeys, useSubscription: nextVal };
-                        setApiKeys(updated);
-                        safeLocalStorage.setItem("distill_use_subscription", nextVal ? "true" : "false");
-                        logSystemMessage("SYSTEM", nextVal ? "Authorized Rook/Dax Premium AI Subscription" : "Deauthorized shared cloud subscriptions");
-                      }}
-                      className={apiKeys.useSubscription ? "btn-secondary" : "btn-premium"}
+                      onClick={handleConnectDax}
+                      disabled={daxStatus === "connecting"}
+                      className="btn-premium"
                       style={{ padding: "8px 16px", fontSize: "12px" }}
                     >
-                      {apiKeys.useSubscription ? "Disconnect" : "Connect Account"}
+                      {daxStatus === "connected" ? "Reconnect" : "Test & Connect"}
                     </button>
                   </div>
                 </div>
@@ -1564,7 +1702,15 @@ export default function App() {
           ) : activePage ? (
             /* Render active workspace document */
             activePage.type === "planner" ? (
-              <KanbanBoard page={activePage} onUpdatePage={handleUpdatePage} />
+              <KanbanBoard
+                page={activePage}
+                onUpdatePage={handleUpdatePage}
+                provider={provider}
+                model={model}
+                apiKeys={apiKeys}
+                isOllamaOnline={isOllamaOnline}
+                logSystemMessage={logSystemMessage}
+              />
             ) : activePage.type === "journal" ? (
               <JournalLogger page={activePage} onUpdatePage={handleUpdatePage} />
             ) : activePage.type === "table" ? (
