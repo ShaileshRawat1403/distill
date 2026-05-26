@@ -8,4 +8,8 @@ export default defineConfig({
       "@": "/src",
     },
   },
+  // sqlite-wasm ships its own .wasm + loader; don't let Vite pre-bundle it.
+  optimizeDeps: {
+    exclude: ["@sqlite.org/sqlite-wasm"],
+  },
 })
