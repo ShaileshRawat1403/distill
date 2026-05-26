@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react"
 import { Orbit, Search, ArrowRight, Calendar, Compass, ZoomIn, ZoomOut, Maximize2, Sliders } from "lucide-react"
 import { Page } from "../App"
+import { loadEmbeddings } from "../db"
+import { buildEdges, type EdgeKind } from "../utils/knowledgeGraph"
 
 interface CelestialMapProps {
   pages: Page[]
@@ -25,6 +27,7 @@ interface Link {
   source: string
   target: string
   weight: number
+  kind: EdgeKind
 }
 
 type GravityMode = "galaxy" | "orbit" | "constellation"
@@ -95,33 +98,27 @@ export default function CelestialMap({ pages, workspace, onNavigate }: Celestial
       }
     })
 
-    // 2. Compute links based on similarity (Shared tags or keywords)
-    const initialLinks: Link[] = []
-    for (let i = 0; i < initialNodes.length; i++) {
-      for (let j = i + 1; j < initialNodes.length; j++) {
-        const nodeA = initialNodes[i]
-        const nodeB = initialNodes[j]
-
-        // Similarity metric 1: Shared tags
-        const sharedTags = nodeA.tags.filter(t => nodeB.tags.includes(t))
-        let weight = sharedTags.length * 0.45
-
-        // Similarity metric 2: Common type
-        if (nodeA.type === nodeB.type) weight += 0.2
-
-        if (weight > 0) {
-          initialLinks.push({
-            source: nodeA.id,
-            target: nodeB.id,
-            weight: Math.min(1, weight)
-          })
-        }
-      }
-    }
-
     setNodes(initialNodes)
-    setLinks(initialLinks)
-  }, [pages])
+
+    // 2. Compute typed edges via the shared knowledge-graph layer.
+    //    Explicit [[wikilinks]] + tag edges are synchronous; semantic edges
+    //    need the stored embeddings, so we load those and rebuild once ready.
+    let cancelled = false
+
+    // First pass: links + tags only, so the graph is never empty while we wait.
+    setLinks(buildEdges(pages, { includeTagEdges: true }))
+
+    loadEmbeddings(workspace)
+      .then((rows) => {
+        if (cancelled) return
+        const vectors = new Map<string, number[]>()
+        for (const row of rows) vectors.set(row.pageId, row.vector)
+        setLinks(buildEdges(pages, { vectors, includeTagEdges: true }))
+      })
+      .catch(() => {/* embeddings unavailable — keep link/tag edges */})
+
+    return () => { cancelled = true }
+  }, [pages, workspace])
 
   // Physics animation loop (Force-Directed simulation with rubbery spring parameters!)
   useEffect(() => {
@@ -175,7 +172,9 @@ export default function CelestialMap({ pages, workspace, onNavigate }: Celestial
             const dx = targetNode.x - sourceNode.x
             const dy = targetNode.y - sourceNode.y
             const dist = Math.sqrt(dx * dx + dy * dy) || 0.1
-            const idealDist = 130
+            // Stronger connections sit closer: high-similarity / linked notes pull
+            // into tight clusters, weak (tag) edges rest farther apart.
+            const idealDist = 175 - link.weight * 95
             const force = (dist - idealDist) * kSpring * link.weight
 
             const fx = (dx / dist) * force
@@ -529,9 +528,17 @@ export default function CelestialMap({ pages, workspace, onNavigate }: Celestial
             if (!sourceNode || !targetNode) return null
 
             // Determine if source or target are selected/hovered to increase glow
-            const isHighlight = 
+            const isHighlight =
               (hoveredNode && (hoveredNode.id === link.source || hoveredNode.id === link.target)) ||
               (selectedNode && (selectedNode.id === link.source || selectedNode.id === link.target))
+
+            // Style by edge kind: explicit wikilinks read as solid/bright,
+            // semantic edges as dashed, shared-tag edges as faint dotted.
+            const kindStyle = {
+              link:     { color: "rgba(168, 85, 247, 0.8)",  dash: "0",     base: 1.6 },
+              semantic: { color: "rgba(99, 102, 241, 0.45)", dash: "6,6",   base: 1.1 },
+              tag:      { color: "rgba(255, 255, 255, 0.1)",  dash: "2,9",   base: 0.8 },
+            }[link.kind]
 
             return (
               <line
@@ -540,11 +547,11 @@ export default function CelestialMap({ pages, workspace, onNavigate }: Celestial
                 y1={sourceNode.y}
                 x2={targetNode.x}
                 y2={targetNode.y}
-                stroke={isHighlight ? "rgba(99, 102, 241, 0.65)" : "rgba(255, 255, 255, 0.08)"}
-                strokeWidth={isHighlight ? 2.5 : 1}
-                strokeDasharray={isHighlight ? "6,6" : "3,10"}
+                stroke={isHighlight ? "rgba(99, 102, 241, 0.75)" : kindStyle.color}
+                strokeWidth={isHighlight ? 2.5 : kindStyle.base + link.weight}
+                strokeDasharray={isHighlight ? "6,6" : kindStyle.dash}
                 filter={isHighlight ? "url(#linkGlow)" : ""}
-                style={{ 
+                style={{
                   transition: "stroke 0.3s, stroke-width 0.3s",
                   animation: isHighlight ? "stardustFlow 1s linear infinite" : "none"
                 }}

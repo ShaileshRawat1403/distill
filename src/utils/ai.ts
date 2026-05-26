@@ -1,47 +1,37 @@
+import { daxPrompt } from "./daxBridge"
+
 // ─── Shared API Keys type ────────────────────────────────────────────────────
 export interface APIKeys {
   openai: string
   anthropic: string
   gemini: string
   groq: string
+  /** When true, the "dax" provider routes through the local DAX/Rook bridge. */
   useSubscription?: boolean
+  /** Base URL of the local dax/rook server (e.g. http://127.0.0.1:4096). */
+  daxUrl?: string
+  /** Optional DAX_SERVER_PASSWORD for the bridge. */
+  daxPassword?: string
 }
 
-// A high-fidelity premium mock response generator that returns smart context-rich results based on the system instructions and user prompt.
-function generateSubscriptionFallbackResponse(prompt: string, system: string, model: string): string {
-  const query = prompt.toLowerCase();
-  
-  if (query.includes("rewrite") || system.toLowerCase().includes("rewrite")) {
-    return `### 💡 Refined Draft (Premium Subscription Active)\n\nHere is a professionally polished version of your draft, optimized for flow, tone, and active phrasing:\n\n---\n\n${prompt.replace(/rewrite this:|rewrite:/gi, "").trim()}\n\n---\n\n*Optimized using premium context parsing with active subscriptions.*`;
-  }
-  
-  if (query.includes("concept") || system.toLowerCase().includes("concept") || query.includes("ladder")) {
-    return `### 🪜 Concept Explanation Ladder (Premium Subscription Active)\n\n#### 👶 Level 1: Five-Year-Old (Intuitive Analogy)\nImagine this like a stack of blocks where each block fits perfectly onto the other to form a bridge. It's simple and sturdy!\n\n#### 🎓 Level 2: High Schooler (General Overview)\nAt a general level, this concept operates as a structured hierarchy of agents working together in a unified network to solve complex problems incrementally.\n\n#### 🔬 Level 3: College Scholar (Detailed Tech Specs)\nIn advanced terms, this represents a multi-layered cognitive architecture leveraging decentralized caches and vector spaces to store intermediate semantic states.\n\n#### 🌌 Level 4: PhD Expert (Theoretical Bounds)\nMathematically defined, we evaluate the system as a directed acyclic graph $G = (V, E)$ where the bounds of structural entropy are minimized through continuous vector indexes.`;
-  }
-  
-  if (query.includes("decision") || system.toLowerCase().includes("decision")) {
-    return `### 🧠 Decision Unpacker (Premium Subscription Active)\n\n#### ⏱️ Horizon 1: Immediate Actions (1 Month)\n- Audit local database storage allocations and establish embedding caches.\n\n#### 🔭 Horizon 2: Tactical Steps (1 Year)\n- Scale out multi-agent execution threads and sync databases across Google Drive.\n\n#### 🌌 Horizon 3: Strategic Vision (5 Years)\n- Transition the local cognitive graph into an autonomous network of decentralized memory banks.`;
-  }
-
-  return `### 🧠 A-Eye Premium Intelligence\n\nActive Premium Subscription (ChatGPT Plus & Gemini Advanced) synced successfully via **Rook / Dax Secure Cloud Gateway**.\n\nHere is the response to your inquiry:\n\n*   **System Scope**: Authorized Cloud Route\n*   **Active Model**: ${model || "gpt-4o-premium"}\n\n**Response**: Your premium workspace query is verified and synced. I am fully ready to assist you in drafting dissertation structures, analyzing technical papers, organizing Kanban backlog items, and automating academic frameworks. Please let me know how I can help you compile more APA references or refactor your sprint pipelines today!`;
-}
-
-async function streamSubscriptionFallbackResponse(
-  prompt: string,
-  system: string,
-  onChunk: (delta: string, fullText: string) => void,
-  onComplete?: (fullText: string) => void
-): Promise<void> {
-  const result = generateSubscriptionFallbackResponse(prompt, system, "gpt-4o-premium");
-  const words = result.split(" ");
-  let current = "";
-  for (let i = 0; i < words.length; i++) {
-    const delta = (i === 0 ? "" : " ") + words[i];
-    current += delta;
-    onChunk(delta, current);
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  onComplete?.(current);
+/**
+ * Route a prompt through the local DAX/Rook bridge. `model` is encoded as
+ * "providerID/modelID" (e.g. "openai/gpt-5.2", "google/gemini-flash-latest").
+ */
+async function executeDax(model: string, prompt: string, system: string, apiKeys: APIKeys): Promise<string> {
+  const url = apiKeys.daxUrl
+  if (!url) throw new Error("DAX/Rook bridge not configured. Set the server URL in Workspace Sync → Subscription.")
+  const [providerID, ...rest] = model.split("/")
+  const modelID = rest.join("/")
+  if (!providerID || !modelID) throw new Error(`Pick a DAX model first (got "${model}").`)
+  const { text } = await daxPrompt({
+    cfg: { url, password: apiKeys.daxPassword },
+    providerID,
+    modelID,
+    prompt,
+    system,
+  })
+  return text
 }
 
 // ─── Execute (single-shot, returns full string) ───────────────────────────────
@@ -62,6 +52,11 @@ export async function executePrompt({
 }: ExecutePromptArgs): Promise<string> {
   const system = systemPrompt || "You are a helpful cognitive assistant."
 
+  // ── DAX / Rook bridge (real ChatGPT/Gemini/Claude subscription auth) ────────
+  if (provider === "dax") {
+    return executeDax(model, prompt, system, apiKeys)
+  }
+
   // ── Ollama (local) ──────────────────────────────────────────────────────────
   if (provider === "ollama") {
     const res = await fetch("http://localhost:11434/api/generate", {
@@ -76,72 +71,50 @@ export async function executePrompt({
 
   // ── OpenAI ──────────────────────────────────────────────────────────────────
   if (provider === "openai") {
-    const key = apiKeys.openai || (apiKeys.useSubscription ? "sk-distill-premium-shared-subscription-key-authorized" : "");
-    if (!key) throw new Error("OpenAI API key missing. Add it in Workspace Sync → Settings, or enable Rook/Dax subscription sync.")
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify({
-          model: model || "gpt-4o-mini",
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.7,
-        }),
-      })
-      if (!res.ok) {
-        if (res.status === 401 && apiKeys.useSubscription) {
-          return generateSubscriptionFallbackResponse(prompt, system, model);
-        }
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error?.message || `OpenAI error: ${res.statusText}`)
-      }
-      const data = await res.json()
-      return data.choices[0].message.content
-    } catch (e) {
-      if (apiKeys.useSubscription) {
-        return generateSubscriptionFallbackResponse(prompt, system, model);
-      }
-      throw e;
+    if (!apiKeys.openai) throw new Error("OpenAI API key missing. Add it in Workspace Sync → Settings, or use the DAX/Rook bridge for subscription access.")
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKeys.openai}`,
+      },
+      body: JSON.stringify({
+        model: model || "gpt-4o-mini",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.7,
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error?.message || `OpenAI error: ${res.statusText}`)
     }
+    const data = await res.json()
+    return data.choices[0].message.content
   }
 
   // ── Gemini ──────────────────────────────────────────────────────────────────
   if (provider === "gemini") {
-    const key = apiKeys.gemini || (apiKeys.useSubscription ? "AIzaSy-distill-premium-shared-subscription-authorized" : "");
-    if (!key) throw new Error("Gemini API key missing. Add it in Workspace Sync → Settings, or enable Rook/Dax subscription sync.")
+    if (!apiKeys.gemini) throw new Error("Gemini API key missing. Add it in Workspace Sync → Settings, or use the DAX/Rook bridge for subscription access.")
     const apiModel = model || "gemini-2.0-flash"
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:generateContent?key=${key}`
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
-          systemInstruction: { parts: [{ text: system }] },
-          generationConfig: { temperature: 0.7 },
-        }),
-      })
-      if (!res.ok) {
-        if ((res.status === 400 || res.status === 403) && apiKeys.useSubscription) {
-          return generateSubscriptionFallbackResponse(prompt, system, model);
-        }
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error?.message || `Gemini error: ${res.statusText}`)
-      }
-      const data = await res.json()
-      return data.candidates[0].content.parts[0].text
-    } catch (e) {
-      if (apiKeys.useSubscription) {
-        return generateSubscriptionFallbackResponse(prompt, system, model);
-      }
-      throw e;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:generateContent?key=${apiKeys.gemini}`
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: system }] },
+        generationConfig: { temperature: 0.7 },
+      }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error(err.error?.message || `Gemini error: ${res.statusText}`)
     }
+    const data = await res.json()
+    return data.candidates[0].content.parts[0].text
   }
 
   // ── Groq (OpenAI-compatible, open models, fast inference) ───────────────────
@@ -265,6 +238,15 @@ export async function streamPrompt({
   }
 
   try {
+    // ── DAX / Rook bridge (non-streamed; emit the full reply at once) ─────────
+    if (provider === "dax") {
+      const text = await executeDax(model, prompt, system, apiKeys)
+      fullText = text
+      onChunk(text, fullText)
+      onComplete?.(fullText)
+      return
+    }
+
     // ── Ollama (NDJSON stream) ────────────────────────────────────────────────
     if (provider === "ollama") {
       const res = await fetch("http://localhost:11434/api/generate", {
@@ -298,46 +280,33 @@ export async function streamPrompt({
 
     // ── OpenAI SSE ───────────────────────────────────────────────────────────
     if (provider === "openai") {
-      const key = apiKeys.openai || (apiKeys.useSubscription ? "sk-distill-premium-shared-subscription-key-authorized" : "");
-      if (!key) throw new Error("OpenAI API key missing. Add it in Workspace Sync → Settings, or enable Rook/Dax subscription sync.")
-      try {
-        const res = await fetch("https://api.openai.com/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${key}`,
-          },
-          body: JSON.stringify({
-            model: model || "gpt-4o-mini",
-            messages: [
-              { role: "system", content: system },
-              { role: "user", content: prompt },
-            ],
-            temperature: 0.7,
-            stream: true,
-          }),
-        })
-        if (!res.ok) {
-          if (res.status === 401 && apiKeys.useSubscription) {
-            await streamSubscriptionFallbackResponse(prompt, system, onChunk, onComplete);
-            return;
-          }
-          const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
-          throw new Error(err.error?.message || `OpenAI error: ${res.statusText}`)
-        }
-        await readSSEStream(res, (p) => {
-          const parsed = p as { choices?: Array<{ delta?: { content?: string } }> }
-          return parsed.choices?.[0]?.delta?.content ?? null
-        })
-        onComplete?.(fullText)
-        return
-      } catch (e) {
-        if (apiKeys.useSubscription) {
-          await streamSubscriptionFallbackResponse(prompt, system, onChunk, onComplete);
-          return;
-        }
-        throw e;
+      if (!apiKeys.openai) throw new Error("OpenAI API key missing. Add it in Workspace Sync → Settings, or use the DAX/Rook bridge for subscription access.")
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKeys.openai}`,
+        },
+        body: JSON.stringify({
+          model: model || "gpt-4o-mini",
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.7,
+          stream: true,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
+        throw new Error(err.error?.message || `OpenAI error: ${res.statusText}`)
       }
+      await readSSEStream(res, (p) => {
+        const parsed = p as { choices?: Array<{ delta?: { content?: string } }> }
+        return parsed.choices?.[0]?.delta?.content ?? null
+      })
+      onComplete?.(fullText)
+      return
     }
 
     // ── Groq SSE (OpenAI-compatible) ─────────────────────────────────────────
@@ -373,41 +342,28 @@ export async function streamPrompt({
 
     // ── Gemini SSE ───────────────────────────────────────────────────────────
     if (provider === "gemini") {
-      const key = apiKeys.gemini || (apiKeys.useSubscription ? "AIzaSy-distill-premium-shared-subscription-authorized" : "");
-      if (!key) throw new Error("Gemini API key missing. Add it in Workspace Sync → Settings, or enable Rook/Dax subscription sync.")
+      if (!apiKeys.gemini) throw new Error("Gemini API key missing. Add it in Workspace Sync → Settings, or use the DAX/Rook bridge for subscription access.")
       const apiModel = model || "gemini-2.0-flash"
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:streamGenerateContent?key=${key}&alt=sse`
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: prompt }] }],
-            systemInstruction: { parts: [{ text: system }] },
-            generationConfig: { temperature: 0.7 },
-          }),
-        })
-        if (!res.ok) {
-          if ((res.status === 400 || res.status === 403) && apiKeys.useSubscription) {
-            await streamSubscriptionFallbackResponse(prompt, system, onChunk, onComplete);
-            return;
-          }
-          const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
-          throw new Error(err.error?.message || `Gemini error: ${res.statusText}`)
-        }
-        await readSSEStream(res, (p) => {
-          const parsed = p as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
-          return parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? null
-        })
-        onComplete?.(fullText)
-        return
-      } catch (e) {
-        if (apiKeys.useSubscription) {
-          await streamSubscriptionFallbackResponse(prompt, system, onChunk, onComplete);
-          return;
-        }
-        throw e;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${apiModel}:streamGenerateContent?key=${apiKeys.gemini}&alt=sse`
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          systemInstruction: { parts: [{ text: system }] },
+          generationConfig: { temperature: 0.7 },
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: { message?: string } }
+        throw new Error(err.error?.message || `Gemini error: ${res.statusText}`)
       }
+      await readSSEStream(res, (p) => {
+        const parsed = p as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+        return parsed.candidates?.[0]?.content?.parts?.[0]?.text ?? null
+      })
+      onComplete?.(fullText)
+      return
     }
 
     // ── WebLLM: native streaming via WebGPU ──────────────────────────────────
