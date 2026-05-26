@@ -38,7 +38,7 @@ export default function AEyeAssistant({
 
   // Initialize speech recognition for A-Eye chat
   useEffect(() => {
-    // @ts-ignore
+    // @ts-expect-error webkitSpeechRecognition is not in the DOM lib types
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (SpeechRecognition) {
       const rec = new SpeechRecognition()
@@ -101,7 +101,7 @@ export default function AEyeAssistant({
 
     // Clean markdown elements from content for natural voice reader synthesis
     const cleanText = `${activePage.title}. ${activePage.content
-      .replace(/[#*`[\]\-]/g, "")
+      .replace(/[#*`[\]-]/g, "")
       .replace(/!\[.*?\]\(.*?\)/g, "")}`
 
     const utterance = new SpeechSynthesisUtterance(cleanText)

@@ -88,7 +88,7 @@ export default function DocumentEditor({ page, pages, workspace, onUpdatePage, o
 
   // Initialize Speech Recognition API
   useEffect(() => {
-    // @ts-ignore
+    // @ts-expect-error webkitSpeechRecognition is not in the DOM lib types
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition()

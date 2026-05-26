@@ -13,6 +13,7 @@
 
 import type { Page } from "../App"
 import { executePrompt, type APIKeys } from "./ai"
+import { daxPrompt } from "./daxBridge"
 import { getSetting, setSetting } from "../db"
 
 export interface ConceptNode {
@@ -87,17 +88,39 @@ export async function buildConceptGraph(pages: Page[], opts: BuildOptions): Prom
   const conceptMap = new Map<string, ConceptNode>()
   const relationSet = new Map<string, ConceptRelation>()
 
+  // When routing through the DAX/Rook bridge, reuse a single agent session for
+  // the whole build instead of spinning up a fresh one per note (much faster).
+  const useDax = opts.provider === "dax" && !!opts.apiKeys.daxUrl
+  const [daxProviderID, ...daxRest] = opts.model.split("/")
+  const daxModelID = daxRest.join("/")
+  let daxSession: string | undefined
+
   for (let i = 0; i < candidates.length; i++) {
     const page = candidates[i]
     opts.onProgress?.(i, candidates.length)
     try {
-      const raw = await executePrompt({
-        provider: opts.provider,
-        model: opts.model,
-        apiKeys: opts.apiKeys,
-        systemPrompt: SYSTEM,
-        prompt: `Title: ${page.title}\n\n${page.content.slice(0, 2000)}`,
-      })
+      const prompt = `Title: ${page.title}\n\n${page.content.slice(0, 2000)}`
+      let raw: string
+      if (useDax && daxProviderID && daxModelID) {
+        const res = await daxPrompt({
+          cfg: { url: opts.apiKeys.daxUrl!, password: opts.apiKeys.daxPassword },
+          providerID: daxProviderID,
+          modelID: daxModelID,
+          prompt,
+          system: SYSTEM,
+          sessionID: daxSession,
+        })
+        daxSession = res.sessionID // reuse for subsequent notes
+        raw = res.text
+      } else {
+        raw = await executePrompt({
+          provider: opts.provider,
+          model: opts.model,
+          apiKeys: opts.apiKeys,
+          systemPrompt: SYSTEM,
+          prompt,
+        })
+      }
       const ex = parseExtract(raw)
       if (!ex) continue
 

@@ -50,7 +50,8 @@ function getWorker(): Worker {
     const p = pending.get(id)
     if (!p) return
     pending.delete(id)
-    ok ? p.resolve(rows) : p.reject(new Error(error ?? "sqlite worker error"))
+    if (ok) p.resolve(rows)
+    else p.reject(new Error(error ?? "sqlite worker error"))
   }
   worker.onerror = (e) => {
     // Reject everything in flight so callers fail fast instead of hanging.

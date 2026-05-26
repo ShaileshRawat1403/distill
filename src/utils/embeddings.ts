@@ -47,9 +47,7 @@ async function getPipeline(): Promise<FeatureExtractionPipeline> {
     const { pipeline, env } = await import("@xenova/transformers")
 
     // Use browser cache (OPFS) for model weights — avoids re-download on reload
-    // @ts-ignore
     env.useBrowserCache = true
-    // @ts-ignore
     env.allowLocalModels = false
 
     const pipe = await pipeline("feature-extraction", MODEL, {

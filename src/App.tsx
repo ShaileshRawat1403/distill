@@ -1618,6 +1618,9 @@ export default function App() {
                   <div style={{ display: "flex", alignItems: "center", gap: "10px", borderBottom: "1px solid var(--border-muted)", paddingBottom: "12px" }}>
                     <CloudLightning size={18} style={{ color: driveConnected ? "var(--accent-success)" : "var(--accent-secondary)" }} />
                     <h3 style={{ fontSize: "16px", fontWeight: "600", fontFamily: "var(--font-display)" }}>Google Drive Integration</h3>
+                    <span style={{ fontSize: "9px", fontWeight: 700, fontFamily: "var(--font-mono)", letterSpacing: "0.05em", color: "var(--accent-warning)", border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", padding: "2px 7px", borderRadius: "999px" }}>
+                      DEMO
+                    </span>
                   </div>
                   
                   {driveConnected ? (
@@ -1625,7 +1628,7 @@ export default function App() {
                       <div style={{ display: "flex", alignItems: "center", gap: "8px", background: "rgba(16, 185, 129, 0.06)", border: "1px solid rgba(16, 185, 129, 0.15)", padding: "10px 14px", borderRadius: "var(--radius-sm)" }}>
                         <span className="pulse-dot" style={{ backgroundColor: "var(--accent-success)", boxShadow: "0 0 8px var(--accent-success)" }}></span>
                         <span style={{ fontSize: "12.5px", color: "var(--accent-success)", fontWeight: "600", fontFamily: "var(--font-mono)" }}>
-                          CONNECTED TO GOOGLE DRIVE
+                          DEMO MODE · SAMPLE FILES
                         </span>
                       </div>
                       
@@ -1669,7 +1672,7 @@ export default function App() {
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                       <p style={{ fontSize: "12px", color: "var(--text-secondary)", lineHeight: "1.5" }}>
-                        Connect your Google Drive account to easily sync all your pages, back up document decks, or import text specs and project spreadsheets directly into Distill.
+                        <strong>Preview only.</strong> This connects to bundled sample files to demonstrate import/sync — it does not access a real Google account yet. Live Drive access is planned via an MCP server through the DAX/Rook bridge.
                       </p>
                       <button
                         onClick={() => {
