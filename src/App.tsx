@@ -50,6 +50,7 @@ import MoodBoard from "./components/MoodBoard"
 import AEyeAssistant from "./components/AEyeAssistant"
 import QuickCapture from "./components/QuickCapture"
 import { checkDaxHealth, listDaxModels } from "./utils/daxBridge"
+import ConceptGraph from "./components/ConceptGraph"
 import {
   loadPages,
   upsertPage,
@@ -989,6 +990,21 @@ export default function App() {
               <button
                 onClick={() => {
                   if (document.startViewTransition) {
+                    document.startViewTransition(() => setActivePageId("concepts"))
+                  } else {
+                    setActivePageId("concepts")
+                  }
+                }}
+                className={`sidebar-page-item ${activePageId === "concepts" ? "active" : ""}`}
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px" }}
+              >
+                <Sparkles size={14} style={{ color: "var(--accent-secondary)" }} />
+                <span>Concept Map (AI)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (document.startViewTransition) {
                     document.startViewTransition(() => setActivePageId("inbox"))
                   } else {
                     setActivePageId("inbox")
@@ -1313,6 +1329,23 @@ export default function App() {
               apiKeys={apiKeys}
               isOllamaOnline={isOllamaOnline}
               ollamaModels={ollamaModels}
+              logSystemMessage={logSystemMessage}
+            />
+          ) : activePageId === "concepts" ? (
+            <ConceptGraph
+              pages={pages}
+              workspace={workspace}
+              provider={provider}
+              model={model}
+              apiKeys={apiKeys}
+              isOllamaOnline={isOllamaOnline}
+              onNavigate={(id) => {
+                if (document.startViewTransition) {
+                  document.startViewTransition(() => setActivePageId(id))
+                } else {
+                  setActivePageId(id)
+                }
+              }}
               logSystemMessage={logSystemMessage}
             />
           ) : activePageId === "inbox" ? (
