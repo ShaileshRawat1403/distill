@@ -1,6 +1,11 @@
 # Dependency directories
 node_modules/
 
+# This project uses bun — keep a single lockfile (bun.lock)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
 # Build outputs
 dist/
 dist-ssr/

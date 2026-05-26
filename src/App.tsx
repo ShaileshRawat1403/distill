@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { 
   Feather, 
   Brain, 
@@ -30,14 +30,16 @@ import {
   Zap
 } from "lucide-react"
 
-// Import Components
-import DocumentEditor from "./components/DocumentEditor"
-import KanbanBoard from "./components/KanbanBoard"
-import JournalLogger from "./components/JournalLogger"
-import DatabaseTable from "./components/DatabaseTable"
-import WorkspaceCopilot from "./components/WorkspaceCopilot"
-import CognitiveArena from "./components/CognitiveArena"
-import CelestialMap from "./components/CelestialMap"
+// Import Components — heavy main-area views are code-split (lazy) so the initial
+// bundle stays lean; they load on first navigation.
+const DocumentEditor = lazy(() => import("./components/DocumentEditor"))
+const KanbanBoard = lazy(() => import("./components/KanbanBoard"))
+const JournalLogger = lazy(() => import("./components/JournalLogger"))
+const DatabaseTable = lazy(() => import("./components/DatabaseTable"))
+const WorkspaceCopilot = lazy(() => import("./components/WorkspaceCopilot"))
+const CognitiveArena = lazy(() => import("./components/CognitiveArena"))
+const CelestialMap = lazy(() => import("./components/CelestialMap"))
+const MoodBoard = lazy(() => import("./components/MoodBoard"))
 import RewriteRoom from "./components/RewriteRoom"
 import ConceptLadder from "./components/ConceptLadder"
 import DecisionUnpacker from "./components/DecisionUnpacker"
@@ -46,11 +48,11 @@ import OllamaManager from "./components/OllamaManager"
 import PromptSurgeon from "./components/PromptSurgeon"
 import WebLLMManager from "./components/WebLLMManager"
 import SearchModal from "./components/SearchModal"
-import MoodBoard from "./components/MoodBoard"
 import AEyeAssistant from "./components/AEyeAssistant"
+import ErrorBoundary from "./components/ErrorBoundary"
 import QuickCapture from "./components/QuickCapture"
 import { checkDaxHealth, listDaxModels } from "./utils/daxBridge"
-import ConceptGraph from "./components/ConceptGraph"
+const ConceptGraph = lazy(() => import("./components/ConceptGraph"))
 import {
   loadPages,
   upsertPage,
@@ -1307,6 +1309,13 @@ export default function App() {
 
         {/* Tab Routing / Active Page Editor Grid */}
         <div style={{ flex: 1 }}>
+          <ErrorBoundary label="workspace view">
+          <Suspense fallback={
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "360px", color: "var(--text-muted)", fontSize: "13px", gap: "10px" }}>
+              <span className="pulse-dot" style={{ background: "var(--accent-secondary)", boxShadow: "0 0 8px var(--accent-secondary)" }} />
+              <span style={{ fontFamily: "var(--font-mono)" }}>Loading view…</span>
+            </div>
+          }>
           {activePageId === "copilot" ? (
             <WorkspaceCopilot
               pages={pages}
@@ -1769,6 +1778,8 @@ export default function App() {
               <span>Select or create a Distill document to begin your workflow.</span>
             </div>
           )}
+          </Suspense>
+          </ErrorBoundary>
         </div>
       </main>
 
