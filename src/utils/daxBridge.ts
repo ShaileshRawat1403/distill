@@ -145,3 +145,64 @@ export async function daxPrompt(args: DaxPromptArgs): Promise<DaxPromptResult> {
   }
   return { text: extractText(data.parts), sessionID }
 }
+
+// ─── MCP server management ────────────────────────────────────────────────────
+// DAX hosts Model Context Protocol servers (Google Drive, GitHub, …) and runs
+// their OAuth — the browser-SPA can't do that itself, so Distill drives DAX's
+// /mcp API. Once a server is connected & authed in DAX, the agent can use its
+// tools whenever Distill prompts it. This is the real path for Google Drive.
+
+export interface McpServerStatus {
+  name: string
+  state: string         // "connected" | "needs_auth" | "failed" | "disabled" | …
+  toolCount?: number
+}
+
+/** Raw MCP config sent to DAX. Either a local stdio command or a remote URL. */
+export type McpConfig =
+  | { type: "local"; command: string[]; environment?: Record<string, string>; enabled?: boolean }
+  | { type: "remote"; url: string; headers?: Record<string, string>; enabled?: boolean }
+
+export async function listMcpServers(cfg: DaxConfig): Promise<McpServerStatus[]> {
+  const res = await fetch(`${trimUrl(cfg.url)}/mcp`, { headers: authHeaders(cfg) })
+  if (!res.ok) throw new Error(`Failed to list MCP servers: ${res.statusText}`)
+  const data = (await res.json()) as Record<string, { state?: string; status?: string; tools?: unknown[] }>
+  return Object.entries(data).map(([name, s]) => ({
+    name,
+    state: s.state ?? s.status ?? "unknown",
+    toolCount: Array.isArray(s.tools) ? s.tools.length : undefined,
+  }))
+}
+
+export async function addMcpServer(cfg: DaxConfig, name: string, config: McpConfig): Promise<void> {
+  const res = await fetch(`${trimUrl(cfg.url)}/mcp`, {
+    method: "POST",
+    headers: authHeaders(cfg),
+    body: JSON.stringify({ name, config }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.data?.message || err?.message || `Failed to add MCP server: ${res.statusText}`)
+  }
+}
+
+export async function connectMcpServer(cfg: DaxConfig, name: string): Promise<void> {
+  const res = await fetch(`${trimUrl(cfg.url)}/mcp/${encodeURIComponent(name)}/connect`, { method: "POST", headers: authHeaders(cfg) })
+  if (!res.ok) throw new Error(`Failed to connect "${name}": ${res.statusText}`)
+}
+
+export async function disconnectMcpServer(cfg: DaxConfig, name: string): Promise<void> {
+  const res = await fetch(`${trimUrl(cfg.url)}/mcp/${encodeURIComponent(name)}/disconnect`, { method: "POST", headers: authHeaders(cfg) })
+  if (!res.ok) throw new Error(`Failed to disconnect "${name}": ${res.statusText}`)
+}
+
+/**
+ * Begin an MCP server's OAuth (e.g. Google Drive). DAX runs the browser flow and
+ * a localhost callback. Returns an authorization URL to open, when provided.
+ */
+export async function startMcpAuth(cfg: DaxConfig, name: string): Promise<{ url?: string }> {
+  const res = await fetch(`${trimUrl(cfg.url)}/mcp/${encodeURIComponent(name)}/auth`, { method: "POST", headers: authHeaders(cfg) })
+  if (!res.ok) throw new Error(`Failed to start auth for "${name}": ${res.statusText}`)
+  const data = await res.json().catch(() => ({})) as { url?: string; authorization?: { url?: string } }
+  return { url: data.url ?? data.authorization?.url }
+}

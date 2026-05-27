@@ -53,6 +53,7 @@ import ErrorBoundary from "./components/ErrorBoundary"
 import QuickCapture from "./components/QuickCapture"
 import { checkDaxHealth, listDaxModels } from "./utils/daxBridge"
 const ConceptGraph = lazy(() => import("./components/ConceptGraph"))
+import McpManager from "./components/McpManager"
 import {
   loadPages,
   upsertPage,
@@ -1519,6 +1520,14 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {/* MCP servers (Google Drive, GitHub, …) via the connected DAX bridge */}
+                <McpManager
+                  daxUrl={apiKeys.daxUrl}
+                  daxPassword={apiKeys.daxPassword}
+                  connected={daxStatus === "connected"}
+                  logSystemMessage={logSystemMessage}
+                />
 
                 {/* API Keys Configuration */}
                 <div className="glass-card" style={{ padding: "30px", display: "flex", flexDirection: "column", gap: "20px" }}>
